@@ -1,1 +1,1 @@
-"# Strand Rasterizer" 
+# Strand Rasterizer 
