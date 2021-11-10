@@ -5,9 +5,9 @@ import coalpy.gpu as gpu
 
 class StrandGroupGPU:
 
-    kVertexPoolByteSize   = 32 * 1024 * 1024                # 32mb
+    kVertexPoolByteSize   = 12 * 1024 * 1024                # 32mb
     kIndexPoolByteSize    = 16 * 1024 * 1024                # 16mb
-    kVertexFormatByteSize = ((4 * 3) + (4 * 3) +  (4 * 2))  # Position, Normal, UV
+    kVertexFormatByteSize = 4 * 3                           # Position
     kIndexFormatByteSize  = 4                               # 32 bit
 
     def __init__(self):
@@ -26,13 +26,12 @@ class StrandGroupGPU:
             element_count = math.ceil(StrandGroupGPU.kIndexPoolByteSize / StrandGroupGPU.kIndexFormatByteSize)
         )
 
-    # Create a simple zig-zag in the X-Y plane. \
+    # Create a simple zig-zag in the X-Y plane.
     # TODO: Let StrandGroup define the data and let StrandGroupGPU define the connectivity and allocations
     # (This will conform to the data model proposed by demo team)
-
     def CreateSimpleStrand(self):
 
-        strandData = array.array('f', [
+        vertexData = array.array('f', [
            # v.x,  v.y,  v.z
             -4.0,  0.0,  0.0,
             -2.0, +2.0,  0.0,
@@ -46,7 +45,7 @@ class StrandGroupGPU:
         cmd = gpu.CommandList()
 
         cmd.upload_resource(
-            source = strandData,
+            source = vertexData,
             destination = self.mVertexBuffer
         )
 
@@ -55,4 +54,4 @@ class StrandGroupGPU:
             destination = self.mIndexBuffer
         )
 
-        gpu.schedule([cmd])
+        gpu.schedule(cmd)

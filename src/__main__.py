@@ -33,6 +33,8 @@ def OnRender(render_args: gpu.RenderArgs):
         cmd,
         strands,
         output_target,
+        editor.camera.view_matrix,
+        editor.camera.proj_matrix,
         w, h
     )
 
