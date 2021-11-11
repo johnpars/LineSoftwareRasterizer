@@ -2,11 +2,11 @@ import math
 import numpy as np
 import coalpy.gpu as gpu
 
-from . import StrandGroupGPU
+from . import StrandDeviceMemory
 
 CoreShader = gpu.Shader(file = "shaders/StrandRasterizer.hlsl", name = "StrandRasterizer", main_function = "Main")
 
-def Go( cmd, strands : StrandGroupGPU, target : gpu.Texture, matrixV, matrixP, w, h):
+def Go(cmd, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP, w, h):
 
     cmd.dispatch(
         shader = CoreShader,
@@ -25,7 +25,10 @@ def Go( cmd, strands : StrandGroupGPU, target : gpu.Texture, matrixV, matrixP, w
             matrixP[3, 0:4],
 
             # _ScreenParams
-            [ w, h, 1.0 / w, 1.0 / h ]
+            [ w, h, 1.0 / w, 1.0 / h ],
+
+            # _Params0
+            [ 0.0, 0.0, 0.0, 0.0 ]
         ], dtype='f'),
 
         x = math.ceil(w / 8),

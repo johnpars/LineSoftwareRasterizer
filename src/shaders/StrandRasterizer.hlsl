@@ -11,7 +11,10 @@ cbuffer Constants : register(b0)
     float4x4 _MatrixV;
     float4x4 _MatrixP;
     float4   _ScreenParams;
+    float4   _Params0;
 }
+
+#define _SegmentCount _Params0.x
 
 RWTexture2D<float4> _OutputTarget : register(u0);
 
@@ -39,9 +42,9 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * _ScreenParams.zw;
     const float2 UVh = -1 + 2 * UV;
 
-    float3 result = 0;
+    float3 result = _OutputTarget[dispatchThreadID.xy].xyz;
 
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < _SegmentCount; ++i)
     {
         // Load Indices
         const int i0 = _IndexBuffer[i + 0];

@@ -6,6 +6,7 @@ import sys
 import pathlib
 
 from src import GetModulePath
+from src import StrandFactory
 from src import Camera as c
 from src import Vector
 
@@ -31,39 +32,18 @@ class Editor:
         self.m_cam_rotation_speed = 0.1
         self.m_last_mouse = (0, 0)
 
+        # strand generation settings
+        self.m_generation_settings = StrandFactory.Settings()
+
         # ui panels states
         self.m_camera_panel = True
-
-    def render_camera_bar(self, imgui: g.ImguiBuilder):
-        if not self.m_camera_panel:
-            return
-
-        self.m_camera_panel = imgui.begin("Camera", self.m_camera_panel)
-        if (imgui.collapsing_header("params")):
-            self.m_editor_camera.fov = imgui.slider_float(label="fov", v=self.m_editor_camera.fov, v_min=0.01 * np.pi,
-                                                          v_max=0.7 * np.pi)
-            self.m_editor_camera.near = imgui.slider_float(label="near", v=self.m_editor_camera.near, v_min=0.001,
-                                                           v_max=8.0)
-            self.m_editor_camera.far = imgui.slider_float(label="far", v=self.m_editor_camera.far, v_min=10.0,
-                                                          v_max=90000)
-
-        if (imgui.collapsing_header("transform")):
-            cam_transform = self.m_editor_camera.transform
-            nx = cam_transform.translation[0]
-            ny = cam_transform.translation[1]
-            nz = cam_transform.translation[2]
-            (nx, ny, nz) = imgui.input_float3(label="pos", v=[nx, ny, nz])
-            cam_transform.translation = [nx, ny, nz]
-            if (imgui.button("reset")):
-                cam_transform.translation = [0, 0, 0]
-                cam_transform.rotation = Vector.q_from_angle_axis(0, Vector.float3(1, 0, 0))
-        imgui.end()
+        self.m_strand_panel = True
 
     @property
     def camera(self):
         return self.m_editor_camera
 
-    def _update_inputs(self, input_states):
+    def UpdateInputs(self, input_states):
         self.m_right_pressed = input_states.get_key_state(g.Keys.D)
         self.m_left_pressed = input_states.get_key_state(g.Keys.A)
         self.m_top_pressed = input_states.get_key_state(g.Keys.W)
@@ -75,11 +55,12 @@ class Editor:
             m = input_states.get_mouse_position()
             self.m_last_mouse = (m[2], m[3])
 
-    def update_camera(self, w, h, delta_time, input_states):
+    def UpdateCamera(self, w, h, delta_time, input_states):
         self.m_frame_it = self.m_frame_it + 1
         self.m_editor_camera.w = w
         self.m_editor_camera.h = h
-        self._update_inputs(input_states)
+        self.UpdateInputs(input_states)
+
         if (self.m_can_move_pressed):
             cam_t = self.m_editor_camera.transform
             new_pos = self.m_editor_camera.pos
@@ -104,5 +85,71 @@ class Editor:
             self.m_editor_camera.transform.update_mats()
             self.m_last_mouse = (curr_mouse[2], curr_mouse[3])
 
+    def RenderMainMenuBar(self, imgui: g.ImguiBuilder):
+        if (imgui.begin_main_menu_bar()):
+            if (imgui.begin_menu("Tools")):
+                self.m_camera_panel = True if imgui.menu_item(label="Camera") else self.m_camera_panel
+                self.m_strand_panel = True if imgui.menu_item(label="Strand Generation") else self.m_strand_panel
+                imgui.end_menu()
+            imgui.end_main_menu_bar()
+
+    def RenderCameraBar(self, imgui: g.ImguiBuilder):
+        if not self.m_camera_panel:
+            return
+
+        self.m_camera_panel = imgui.begin("Camera", self.m_camera_panel)
+        if (imgui.collapsing_header("params")):
+            self.m_editor_camera.fov = imgui.slider_float(label="fov", v=self.m_editor_camera.fov, v_min=0.01 * np.pi,
+                                                          v_max=0.7 * np.pi)
+            self.m_editor_camera.near = imgui.slider_float(label="near", v=self.m_editor_camera.near, v_min=0.001,
+                                                           v_max=8.0)
+            self.m_editor_camera.far = imgui.slider_float(label="far", v=self.m_editor_camera.far, v_min=10.0,
+                                                          v_max=90000)
+
+        if (imgui.collapsing_header("transform")):
+            cam_transform = self.m_editor_camera.transform
+            nx = cam_transform.translation[0]
+            ny = cam_transform.translation[1]
+            nz = cam_transform.translation[2]
+            (nx, ny, nz) = imgui.input_float3(label="pos", v=[nx, ny, nz])
+            cam_transform.translation = [nx, ny, nz]
+            if (imgui.button("reset")):
+                cam_transform.translation = [0, 0, 0]
+                cam_transform.rotation = Vector.q_from_angle_axis(0, Vector.float3(1, 0, 0))
+        imgui.end()
+
+    def RenderStrandBar(self, imgui: g.ImguiBuilder):
+        if not self.m_strand_panel:
+            return
+
+        self.m_strand_panel = imgui.begin("Strand Generation", self.m_strand_panel)
+
+        # TODO: Add more imgui bindings, can't do int slider or toggle, etc.
+        self.m_generation_settings.strandCount         = imgui.slider_float(label="Strand Count", v=self.m_generation_settings.strandCount, v_min=64.0, v_max=512.0)
+        self.m_generation_settings.strandParticleCount = imgui.slider_float(label="Strand Particle Count", v=self.m_generation_settings.strandParticleCount, v_min=3.0, v_max=64.0)
+        self.m_generation_settings.strandLength        = imgui.slider_float(label="Strand Length", v=self.m_generation_settings.strandLength, v_min=0.001, v_max=5.0)
+
+        if imgui.button("BUILD"):
+            self.RebuildStrands()
+
+
+        imgui.end()
+
+    def RebuildStrands(self):
+        # Need to manually round this
+        self.m_generation_settings.strandCount = int(round(self.m_generation_settings.strandCount))
+        self.m_generation_settings.strandParticleCount = int(round(self.m_generation_settings.strandParticleCount))
+
+        # Produce a strand group based on the input settings...
+        strands = StrandFactory.Build(self.m_generation_settings)
+
+        # ...and upload to the device.
+        # StrandDeviceMemory.Upload(strands)
+
+
+
     def render_ui(self, imgui: g.ImguiBuilder):
-        self.render_camera_bar(imgui)
+        self.RenderMainMenuBar(imgui)
+        self.RenderCameraBar(imgui)
+        self.RenderStrandBar(imgui)
+

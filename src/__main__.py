@@ -2,13 +2,15 @@ import coalpy.gpu as gpu
 
 from src import Utility
 from src import Editor
-from src import StrandGroup
-from src import StrandGroupGPU
+
+from src import StrandFactory
+from src import StrandDeviceMemory
 from src import StrandRasterizer
 
-# Create the dev strand (low resolution so that we can demonstrate tesselation)
-strands = StrandGroupGPU.StrandGroupGPU()
-strands.CreateSimpleStrand()
+# Allocate a chunk of device memory resources
+deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
+
+# Create a default strand
 
 editor = Editor.Editor()
 
@@ -19,24 +21,28 @@ def OnRender(render_args: gpu.RenderArgs):
     h = render_args.height
 
     # Process user input and interface
-    editor.update_camera(w, h, render_args.delta_time, render_args.window)
+    editor.UpdateCamera(w, h, render_args.delta_time, render_args.window)
 
     cmd = gpu.CommandList()
 
     Utility.ClearTarget(
         cmd,
-        [1.0, 1.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
         output_target, w, h
     )
 
-    StrandRasterizer.Go(
-        cmd,
-        strands,
-        output_target,
-        editor.camera.view_matrix,
-        editor.camera.proj_matrix,
-        w, h
-    )
+    # Bind the strand data for this tick.
+
+
+    # Draw the strands.
+    # StrandRasterizer.Go(
+    #     cmd,
+    #     strandsGPU,
+    #     output_target,
+    #     editor.camera.view_matrix,
+    #     editor.camera.proj_matrix,
+    #     w, h
+    # )
 
     editor.render_ui(render_args.imgui)
 
