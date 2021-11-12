@@ -2,11 +2,11 @@ import math
 import numpy as np
 import coalpy.gpu as gpu
 
-from . import StrandDeviceMemory
+from src import StrandDeviceMemory
 
-CoreShader = gpu.Shader(file = "shaders/StrandRasterizer.hlsl", name = "StrandRasterizer", main_function = "Main")
+CoreShader = gpu.Shader(file = "StrandRasterizer.hlsl", name = "StrandRasterizer", main_function = "Main")
 
-def Go(cmd, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP, w, h):
+def Go(cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP, w, h):
 
     cmd.dispatch(
         shader = CoreShader,
@@ -28,7 +28,7 @@ def Go(cmd, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP
             [ w, h, 1.0 / w, 1.0 / h ],
 
             # _Params0
-            [ 0.0, 0.0, 0.0, 0.0 ]
+            [ strandCount, strandParticleCount, strandCount * (strandParticleCount - 1), 0.0 ]
         ], dtype='f'),
 
         x = math.ceil(w / 8),
@@ -36,7 +36,8 @@ def Go(cmd, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP
 
         inputs = [
             strands.mVertexBuffer,
-            strands.mIndexBuffer
+            strands.mIndexBuffer,
+            strands.mPositionBuffer
         ],
 
         outputs = target

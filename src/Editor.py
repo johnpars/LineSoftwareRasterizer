@@ -5,14 +5,14 @@ import numpy as np
 import sys
 import pathlib
 
-from src import GetModulePath
 from src import StrandFactory
+from src import StrandDeviceMemory
 from src import Camera as c
 from src import Vector
 
 class Editor:
 
-    def __init__(self):
+    def __init__(self, deviceMemory : StrandDeviceMemory.StrandDeviceMemory, strands : StrandFactory.Strands):
         self.m_active_scene_name = None
         self.m_active_scene = None
         self.m_editor_camera = c.Camera(1920, 1080)
@@ -34,6 +34,8 @@ class Editor:
 
         # strand generation settings
         self.m_generation_settings = StrandFactory.Settings()
+        self.m_device_memory = deviceMemory
+        self.m_strands = strands
 
         # ui panels states
         self.m_camera_panel = True
@@ -125,7 +127,7 @@ class Editor:
         self.m_strand_panel = imgui.begin("Strand Generation", self.m_strand_panel)
 
         # TODO: Add more imgui bindings, can't do int slider or toggle, etc.
-        self.m_generation_settings.strandCount         = imgui.slider_float(label="Strand Count", v=self.m_generation_settings.strandCount, v_min=64.0, v_max=512.0)
+        self.m_generation_settings.strandCount         = imgui.slider_float(label="Strand Count", v=self.m_generation_settings.strandCount, v_min=64.0, v_max=2048.0)
         self.m_generation_settings.strandParticleCount = imgui.slider_float(label="Strand Particle Count", v=self.m_generation_settings.strandParticleCount, v_min=3.0, v_max=64.0)
         self.m_generation_settings.strandLength        = imgui.slider_float(label="Strand Length", v=self.m_generation_settings.strandLength, v_min=0.001, v_max=5.0)
 
@@ -141,11 +143,12 @@ class Editor:
         self.m_generation_settings.strandParticleCount = int(round(self.m_generation_settings.strandParticleCount))
 
         # Produce a strand group based on the input settings...
-        strands = StrandFactory.Build(self.m_generation_settings)
+        self.m_strands = StrandFactory.Build(self.m_generation_settings)
 
-        # ...and upload to the device.
-        # StrandDeviceMemory.Upload(strands)
-
+        # ...and inform the device to reformat the buffers
+        # (position data will be bound later in a separate compute buffer, to similarly resemble the full data model).
+        self.m_device_memory.Layout(self.m_strands.strandCount, self.m_strands.strandParticleCount)
+        self.m_device_memory.BindStrandPositionData(self.m_strands.particlePositions)
 
 
     def render_ui(self, imgui: g.ImguiBuilder):

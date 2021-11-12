@@ -2,7 +2,7 @@
 
 import numpy as np
 import quaternion
-from . import Vector
+from src import Vector
 
 class Transform:
 

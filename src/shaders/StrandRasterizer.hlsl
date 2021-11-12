@@ -1,10 +1,15 @@
-struct Vertex
+// Force to interleaved for now
+#define LAYOUT_INTERLEAVED 1
+
+Buffer<uint> _VertexBuffer : register(t0); // TODO: UV
+Buffer<uint> _IndexBuffer  : register(t1);
+
+struct StrandData
 {
-    float3 positionOS;
+    float3 strandPositionOS;
 };
 
-StructuredBuffer<Vertex> _VertexBuffer : register(t0);
-Buffer<int>              _IndexBuffer  : register(t1);
+StructuredBuffer<StrandData> _StrandDataBuffer : register(t2);
 
 cbuffer Constants : register(b0)
 {
@@ -14,10 +19,27 @@ cbuffer Constants : register(b0)
     float4   _Params0;
 }
 
-#define _SegmentCount _Params0.x
+#define _StrandCount         _Params0.x
+#define _StrandParticleCount _Params0.y
+#define _TotalSegmentCount   _Params0.z
+
+#if LAYOUT_INTERLEAVED
+  #define DECLARE_STRAND(x)							\
+	const uint strandIndex = x;						\
+	const uint strandParticleBegin = strandIndex;	\
+	const uint strandParticleStride = _StrandCount;	\
+	const uint strandParticleEnd = strandParticleBegin + strandParticleStride * _StrandParticleCount;
+#else
+  #define DECLARE_STRAND(x)													\
+	const uint strandIndex = x;												\
+	const uint strandParticleBegin = strandIndex * _StrandParticleCount;	\
+	const uint strandParticleStride = 1;									\
+	const uint strandParticleEnd = strandParticleBegin + strandParticleStride * _StrandParticleCount;
+#endif
 
 RWTexture2D<float4> _OutputTarget : register(u0);
 
+// Temporary line equation solver to visualize the projection
 float Line(float2 P, float2 A, float2 B)
 {
     float2 AB = B - A;
@@ -35,6 +57,19 @@ float Line(float2 P, float2 A, float2 B)
     return sqrt(i);
 }
 
+// Theoretical Vertex Shader Program
+float4 Vert(uint vertexID)
+{
+    uint linearParticleIndex = vertexID;
+    DECLARE_STRAND(vertexID / _StrandParticleCount)
+
+    const uint i = strandParticleBegin + (linearParticleIndex % _StrandParticleCount) * strandParticleStride;
+
+    const StrandData strandData = _StrandDataBuffer[i];
+
+    return mul(mul(float4(strandData.strandPositionOS, 1.0), _MatrixV), _MatrixP);
+}
+
 [numthreads(8, 8, 1)]
 void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
@@ -44,19 +79,20 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 
     float3 result = _OutputTarget[dispatchThreadID.xy].xyz;
 
-    for (int i = 0; i < _SegmentCount; ++i)
+    // Brute force iterate over every segment.
+    for (int i = 0; i < _TotalSegmentCount; ++i)
     {
         // Load Indices
-        const int i0 = _IndexBuffer[i + 0];
-        const int i1 = _IndexBuffer[i + 1];
+        const uint i0 = _IndexBuffer[i + 0];
+        const uint i1 = _IndexBuffer[i + 1];
 
         // Load Vertices
-        const Vertex v0 = _VertexBuffer[i0];
-        const Vertex v1 = _VertexBuffer[i1];
+        const uint v0 = _VertexBuffer[i0];
+        const uint v1 = _VertexBuffer[i1];
 
-        // Project to screen
-        const float4 h0 = mul(mul(float4(v0.positionOS, 1.0), _MatrixV), _MatrixP);
-        const float4 h1 = mul(mul(float4(v1.positionOS, 1.0), _MatrixV), _MatrixP);
+        // Invoke Vertex Shader
+        const float4 h0 = Vert(v0);
+        const float4 h1 = Vert(v1);
 
         // Perspective divide
         const float3 p0 = h0.xyz / h0.w;
@@ -65,6 +101,15 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
         // Accumulate Result
         result = max(result, Line(UVh, p0.xy, p1.xy));
     }
+
+    //for (int i = 0; i < _TotalSegmentCount; ++i)
+    //{
+    //    const uint v = _VertexBuffer[i];
+    //    const float4 h = Vert(v);
+    //    const float3 p = h.xyz / h.w;
+//
+    //    result += length(UVh - p.xy) < 0.005 ? 1.0 : 0.0;
+    //}
 
     _OutputTarget[dispatchThreadID.xy] = float4(result, 1.0);
 }

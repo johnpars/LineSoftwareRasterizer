@@ -1,7 +1,6 @@
 # Camera adapted from Kleber Garcia's GRR (GPU Rasterizer and Renderer)
 
 import numpy as np
-from src import Vector
 from src import Transform as t
 
 class Camera:
