@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import random
 
@@ -10,21 +12,22 @@ class CurlSamplingStrategy:
 
 class PrimitiveType:
     Curtain = 0
-    Brush = 1
-    Cap = 2
+    StratifiedCurtain = 1
+    Brush = 2
+    Cap = 3
 
 @dataclass
 class Settings:
     # General
-    primitive: PrimitiveType = PrimitiveType.Brush
-    strandCount: int = 512
-    strandParticleCount: int = 4
+    primitive: PrimitiveType = PrimitiveType.StratifiedCurtain
+    strandCount: int = 32
+    strandParticleCount: int = 32
     strandLength: float = 0.25
     strandLengthVariation: bool = False
     strandLengthVariationAmount: float = 0.2
 
     # Curls
-    curl: bool = False
+    curl: bool = True
     curlRadius: float = 1.0
     curlSlope: float = 0.3
     curlVariation: bool = False
@@ -65,6 +68,27 @@ def GenerateRoots(settings : Settings) -> Roots:
             uv = Utility.Vector2(i * step, 0.5)
 
             rootPos[i] = Utility.Vector3(localDim.x * (uv.x - 0.5), 0.0, 0.0)
+            rootDir[i] = localDir
+            rootUV0[i] = uv
+
+            i += 1
+
+    if settings.primitive is PrimitiveType.StratifiedCurtain:
+        step = 1.0 / settings.strandCount
+
+        localDim = Utility.Vector3(1.0, 0.0, step)
+        localDir = Utility.Vector3(0.0, -1.0, 0.0)
+
+        i = 0
+        while i != settings.strandCount:
+            uvCell = Utility.Vector2(
+                random.random(),
+                random.random()
+            )
+
+            uv = Utility.Vector2((i + uvCell.x) * step, uvCell.y)
+
+            rootPos[i] = Utility.Vector3(localDim.x * (uv.x - 0.5), 0.0, localDim.z * (uv.y - 0.5))
             rootDir[i] = localDir
             rootUV0[i] = uv
 
@@ -124,22 +148,63 @@ def GenerateStrands(roots : Roots, settings : Settings) -> Strands:
                                                        i, settings.strandCount, settings.strandParticleCount)
 
         # TODO: Curls
+        if settings.curl:
+            curPlaneU = Utility.Normalize(Utility.NextVectorInPlane(curDir))
+            curPlaneV = Utility.Cross(curPlaneU, curDir)
 
-        j = begin
-        while j != end:
+            targetRadius = settings.curlRadius * 0.01
+            targetSlope = settings.curlSlope
 
-            strandPos[j] = Utility.Vector3(
-                curPos.x + (j * step * curDir.x),
-                curPos.y + (j * step * curDir.y),
-                curPos.z + (j * step * curDir.z)
-            )
+            stepPlane = step * math.cos(0.5 * math.pi * targetSlope)
 
-            # Looks like python array elements don't store a copy, not safe to modify it
-            # curPos.x += step * curDir.x
-            # curPos.y += step * curDir.y
-            # curPos.z += step * curDir.z
+            if stepPlane > 1.0 * targetRadius:
+                stepPlane = 1.0 * targetRadius
 
-            j += stride
+            if settings.curlSamplingStrategy == CurlSamplingStrategy.RelaxStrandLength:
+                stepSlope = step * math.sin(0.5 * math.pi * targetSlope)
+            else:
+                stepSlope = math.sqrt(step * step - stepPlane * stepPlane)
+
+            a = 2.0 * math.asin(stepPlane / (2.0 * targetRadius)) if stepPlane > 0.0 else 0.0
+            t = 0
+
+            curPos.x -= curPlaneU.x * targetRadius
+            curPos.y -= curPlaneU.y * targetRadius
+            curPos.z -= curPlaneU.z * targetRadius
+
+            j = begin
+            while j != end:
+                du = targetRadius * math.cos(t + a)
+                dv = targetRadius * math.sin(t * a)
+                dn = stepSlope * t
+
+                strandPos[j] = Utility.Vector3(
+                    curPos.x + (du * curPlaneU.x) + (dv * curPlaneV.x) + (dn * curDir.x),
+                    curPos.y + (du * curPlaneU.y) + (dv * curPlaneV.y) + (dn * curDir.y),
+                    curPos.z + (du * curPlaneU.z) + (dv * curPlaneV.z) + (dn * curDir.z)
+                )
+
+                j += stride
+                t += 1
+        else:
+            k = 0
+            j = begin
+            while j != end:
+
+                # TODO: Overload
+                strandPos[j] = Utility.Vector3(
+                    curPos.x + (k * step * curDir.x),
+                    curPos.y + (k * step * curDir.y),
+                    curPos.z + (k * step * curDir.z)
+                )
+
+                # Looks like python array elements don't store a copy, not safe to modify it
+                # curPos.x += step * curDir.x
+                # curPos.y += step * curDir.y
+                # curPos.z += step * curDir.z
+
+                j += stride
+                k += 1
 
         i += 1
 

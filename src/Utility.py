@@ -47,6 +47,44 @@ def RandomSphereDirection():
     c = math.cos(angle)
     return Vector3(c * r, s * r, z)
 
+def SquareMagnitude(v : Vector3) -> float:
+    return v.x * v.x + v.y * v.y + v.z * v.z
+
+def Cross(a : Vector3, b : Vector3) -> Vector3:
+    return Vector3(
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.z
+    )
+
+def Dot(a : Vector3, b : Vector3) -> float:
+    return a.x * b.x + a.y * b.y + a.z * b.z
+
+def Normalize(v : Vector3) -> Vector3:
+    m = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+
+    return Vector3(
+        v.x / m,
+        v.y / m,
+        v.z / m
+    )
+
+def ProjectOnPlane(v: Vector3, n: Vector3) -> Vector3:
+    d = Dot(v, n)
+    m = Dot(n, n)
+    return Vector3(
+        v.x - n.x * d / m,
+        v.y - n.y * d / m,
+        v.z - n.z * d / m
+    )
+
+def NextVectorInPlane(n) -> Vector3:
+    while True:
+        r = ProjectOnPlane(RandomSphereDirection(), n)
+        if SquareMagnitude(r) > 1e-5:
+            break
+    return r
+
 def Lerp(a : float, b : float, t : float) -> float:
     return (t * a) + ((1 - t) * b)
 

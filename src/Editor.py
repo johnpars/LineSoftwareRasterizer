@@ -127,8 +127,8 @@ class Editor:
         self.m_strand_panel = imgui.begin("Strand Generation", self.m_strand_panel)
 
         # TODO: Add more imgui bindings, can't do int slider or toggle, etc.
-        self.m_generation_settings.strandCount         = imgui.slider_float(label="Strand Count", v=self.m_generation_settings.strandCount, v_min=64.0, v_max=2048.0)
-        self.m_generation_settings.strandParticleCount = imgui.slider_float(label="Strand Particle Count", v=self.m_generation_settings.strandParticleCount, v_min=3.0, v_max=64.0)
+        self.m_generation_settings.strandCount         = imgui.slider_float(label="Strand Count", v=self.m_generation_settings.strandCount, v_min=1.0, v_max=2048.0)
+        self.m_generation_settings.strandParticleCount = imgui.slider_float(label="Strand Particle Count", v=self.m_generation_settings.strandParticleCount, v_min=2.0, v_max=64.0)
         self.m_generation_settings.strandLength        = imgui.slider_float(label="Strand Length", v=self.m_generation_settings.strandLength, v_min=0.001, v_max=5.0)
 
         if imgui.button("BUILD"):

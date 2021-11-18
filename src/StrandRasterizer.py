@@ -28,7 +28,7 @@ def Go(cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, targ
             [ w, h, 1.0 / w, 1.0 / h ],
 
             # _Params0
-            [ strandCount, strandParticleCount, strandCount * (strandParticleCount - 1), 0.0 ]
+            [ strandCount, strandParticleCount, 0.0, 0.0 ]
         ], dtype='f'),
 
         x = math.ceil(w / 8),
@@ -37,7 +37,7 @@ def Go(cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, targ
         inputs = [
             strands.mVertexBuffer,
             strands.mIndexBuffer,
-            strands.mPositionBuffer
+            strands.mStrandDataBuffer
         ],
 
         outputs = target

@@ -17,8 +17,8 @@ class StrandDeviceMemory:
     kIndexFormatByteSize  = 4                               # 32 bit
 
     # Strand Positions
-    kStrandPositionPoolByteSize   = 32 * 1024 * 1024                # 32mb
-    kStrandPositionFormatByteSize = 4 * 3                           # Position
+    kStrandPositionPoolByteSize   = 32 * 1024 * 1024        # 32mb
+    kStrandPositionFormatByteSize = 4 * 3                   # Position
 
 
     def __init__(self):
@@ -37,7 +37,7 @@ class StrandDeviceMemory:
             element_count = math.ceil(StrandDeviceMemory.kIndexPoolByteSize / StrandDeviceMemory.kIndexFormatByteSize)
         )
 
-        self.mPositionBuffer = gpu.Buffer(
+        self.mStrandDataBuffer = gpu.Buffer(
             name = "GlobalStrandPositionBuffer",
             type = gpu.BufferType.Structured,
             stride = StrandDeviceMemory.kStrandPositionFormatByteSize,
@@ -114,7 +114,7 @@ class StrandDeviceMemory:
 
         cmd.upload_resource(
             source = positionsGPU,
-            destination = self.mPositionBuffer
+            destination = self.mStrandDataBuffer
         )
 
         gpu.schedule(cmd)

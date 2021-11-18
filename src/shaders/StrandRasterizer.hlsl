@@ -1,5 +1,9 @@
-// Force to interleaved for now
-#define LAYOUT_INTERLEAVED 1
+#define LAYOUT_INTERLEAVED 1 // Force to interleaved for now
+// #define DEBUG_VIEW_VERTICES 1
+#define DEBUG_COLOR_STRAND 1
+
+// Maximum representable floating-point number
+#define FLT_MAX  3.402823466e+38
 
 Buffer<uint> _VertexBuffer : register(t0); // TODO: UV
 Buffer<uint> _IndexBuffer  : register(t1);
@@ -7,6 +11,10 @@ Buffer<uint> _IndexBuffer  : register(t1);
 struct StrandData
 {
     float3 strandPositionOS;
+};
+
+struct InterpolationResult
+{
 };
 
 StructuredBuffer<StrandData> _StrandDataBuffer : register(t2);
@@ -19,25 +27,43 @@ cbuffer Constants : register(b0)
     float4   _Params0;
 }
 
-#define _StrandCount         _Params0.x
-#define _StrandParticleCount _Params0.y
-#define _TotalSegmentCount   _Params0.z
+#define _StrandCount           _Params0.x
+#define _StrandParticleCount   _Params0.y
+#define _PerStrandVertexCount  _StrandParticleCount
+#define _PerStrandSegmentCount (_PerStrandVertexCount - 1)
+#define _PerStrandIndexCount   (_PerStrandSegmentCount * 2)
+#define _IndexCount            _StrandCount * _PerStrandIndexCount
 
 #if LAYOUT_INTERLEAVED
-  #define DECLARE_STRAND(x)							\
-	const uint strandIndex = x;						\
-	const uint strandParticleBegin = strandIndex;	\
-	const uint strandParticleStride = _StrandCount;	\
-	const uint strandParticleEnd = strandParticleBegin + strandParticleStride * _StrandParticleCount;
+    #define DECLARE_STRAND(x)							\
+        const uint strandIndex = x;						\
+        const uint strandParticleBegin = strandIndex;	\
+        const uint strandParticleStride = _StrandCount;	\
+        const uint strandParticleEnd = strandParticleBegin + strandParticleStride * _StrandParticleCount;
 #else
-  #define DECLARE_STRAND(x)													\
-	const uint strandIndex = x;												\
-	const uint strandParticleBegin = strandIndex * _StrandParticleCount;	\
-	const uint strandParticleStride = 1;									\
-	const uint strandParticleEnd = strandParticleBegin + strandParticleStride * _StrandParticleCount;
+    #define DECLARE_STRAND(x)													\
+        const uint strandIndex = x;												\
+        const uint strandParticleBegin = strandIndex * _StrandParticleCount;	\
+        const uint strandParticleStride = 1;									\
+        const uint strandParticleEnd = strandParticleBegin + strandParticleStride * _StrandParticleCount;
+#endif
+
+#if DEBUG_COLOR_STRAND
+    #define DEBUG_COLOR(x) ColorCycle(x, _StrandCount)
+#else
+    #define DEBUG_COLOR(x) ColorCycle(x, _StrandCount * _StrandParticleCount)
 #endif
 
 RWTexture2D<float4> _OutputTarget : register(u0);
+
+float3 ColorCycle(uint index, uint count)
+{
+	float t = frac(index / (float)count);
+
+	// Ref: https://www.shadertoy.com/view/4ttfRn
+	float3 c = 3.0 * float3(abs(t - 0.5), t.xx) - float3(1.5, 1.0, 2.0);
+	return 1.0 - c * c;
+}
 
 // Temporary line equation solver to visualize the projection
 float Line(float2 P, float2 A, float2 B)
@@ -51,10 +77,16 @@ float Line(float2 P, float2 A, float2 B)
     float t = clamp(dot(T, AP), 0.0, l);
     float2 closestPoint = A + t * T;
 
-    float distanceToClosest = 1.0 - (length(closestPoint - P) / 0.005);
+    float distanceToClosest = 1.0 - (length(closestPoint - P) / 0.0025);
     float i = clamp(distanceToClosest, 0.0, 1.0);
 
     return sqrt(i);
+}
+
+float Line1(float2 A, float2 B, float2 P)
+{
+    return (-(B.y - A.y) * A.x) + ((B.x - A.x) * P.y) +
+            ((B.y - A.y) * A.x) - ((B.x - A.x) * A.y);
 }
 
 // Theoretical Vertex Shader Program
@@ -70,6 +102,12 @@ float4 Vert(uint vertexID)
     return mul(mul(float4(strandData.strandPositionOS, 1.0), _MatrixV), _MatrixP);
 }
 
+// Theoretical Fragment Shader Program
+float3 Frag(uint strandIndex)
+{
+    return DEBUG_COLOR(strandIndex);
+}
+
 [numthreads(8, 8, 1)]
 void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
@@ -79,37 +117,53 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 
     float3 result = _OutputTarget[dispatchThreadID.xy].xyz;
 
-    // Brute force iterate over every segment.
-    for (int i = 0; i < _TotalSegmentCount; ++i)
+#if DEBUG_VIEW_VERTICES
+    for (int i = 0; i < _StrandCount * _StrandParticleCount; ++i)
     {
-        // Load Indices
-        const uint i0 = _IndexBuffer[i + 0];
-        const uint i1 = _IndexBuffer[i + 1];
+        const uint v = _VertexBuffer[i];
+        const float4 h = Vert(v);
 
-        // Load Vertices
-        const uint v0 = _VertexBuffer[i0];
-        const uint v1 = _VertexBuffer[i1];
+        if (h.z > 0)
+            continue;
 
-        // Invoke Vertex Shader
-        const float4 h0 = Vert(v0);
-        const float4 h1 = Vert(v1);
+        const float3 p = h.xyz / h.w;
 
-        // Perspective divide
-        const float3 p0 = h0.xyz / h0.w;
-        const float3 p1 = h1.xyz / h1.w;
+        const float l = length(UVh - p.xy);
 
-        // Accumulate Result
-        result = max(result, Line(UVh, p0.xy, p1.xy));
+        result += Frag(i / _StrandParticleCount) * (1.0 - smoothstep(0, 0.005, l));
     }
+#else
+    // Maintain a Z-Buffer per-thread
+    float Z = FLT_MAX;
 
-    //for (int i = 0; i < _TotalSegmentCount; ++i)
-    //{
-    //    const uint v = _VertexBuffer[i];
-    //    const float4 h = Vert(v);
-    //    const float3 p = h.xyz / h.w;
-//
-    //    result += length(UVh - p.xy) < 0.005 ? 1.0 : 0.0;
-    //}
+    // Brute force iterate over every segment.
+    // Emulates the rasterization of line strips.
+    for (uint i = 0; i < _IndexCount; i += 2)
+    {
+         // Load Indices
+         const uint i0 = _IndexBuffer[i + 0];
+         const uint i1 = _IndexBuffer[i + 1];
+
+         // Load Vertices
+         const uint v0 = _VertexBuffer[i0];
+         const uint v1 = _VertexBuffer[i1];
+
+         // Invoke Vertex Shader
+         const float4 h0 = Vert(v0);
+         const float4 h1 = Vert(v1);
+
+         // Clip if behind the projection plane.
+         if (h0.z > 0 || h1.z > 0)
+            continue;
+
+         // Perspective divide
+         const float3 p0 = h0.xyz / h0.w;
+         const float3 p1 = h1.xyz / h1.w;
+
+         // Accumulate Result
+         result += Frag(i / _PerStrandIndexCount) * Line(UVh, p0.xy, p1.xy);
+    }
+#endif
 
     _OutputTarget[dispatchThreadID.xy] = float4(result, 1.0);
 }
