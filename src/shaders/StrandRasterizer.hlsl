@@ -5,17 +5,19 @@
 // Maximum representable floating-point number
 #define FLT_MAX  3.402823466e+38
 
-Buffer<uint> _VertexBuffer : register(t0); // TODO: UV
-Buffer<uint> _IndexBuffer  : register(t1);
-
 struct StrandData
 {
     float3 strandPositionOS;
 };
 
-struct InterpolationResult
+struct Vertex
 {
+    float vertexID;
+    float vertexUV;
 };
+
+StructuredBuffer<Vertex> _VertexBuffer : register(t0);
+Buffer<uint> _IndexBuffer  : register(t1);
 
 StructuredBuffer<StrandData> _StrandDataBuffer : register(t2);
 
@@ -145,12 +147,12 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
          const uint i1 = _IndexBuffer[i + 1];
 
          // Load Vertices
-         const uint v0 = _VertexBuffer[i0];
-         const uint v1 = _VertexBuffer[i1];
+         const Vertex v0 = _VertexBuffer[i0];
+         const Vertex v1 = _VertexBuffer[i1];
 
          // Invoke Vertex Shader
-         const float4 h0 = Vert(v0);
-         const float4 h1 = Vert(v1);
+         const float4 h0 = Vert(uint(v0.vertexID));
+         const float4 h1 = Vert(uint(v1.vertexID));
 
          // Clip if behind the projection plane.
          if (h0.z > 0 || h1.z > 0)
