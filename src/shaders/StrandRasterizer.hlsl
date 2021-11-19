@@ -118,7 +118,7 @@ float4 Vert(uint vertexID)
 float3 Frag(uint strandIndex, float2 uv)
 {
     const float3 c = DEBUG_COLOR(strandIndex);
-    return lerp(c, 1 - c, uv.x);
+    return c; //lerp(c, 1 - c, uv.x);
 }
 
 [numthreads(8, 8, 1)]
@@ -147,7 +147,7 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
     }
 #else
     // Maintain a Z-Buffer per-thread
-    float Z = FLT_MAX;
+    float Z = -FLT_MAX;
 
     // Brute force iterate over every segment.
     // Emulates the rasterization of line strips.
@@ -170,8 +170,8 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
             continue;
 
          // Perspective divide
-         const float3 p0 = h0.xyz / h0.w;
-         const float3 p1 = h1.xyz / h1.w;
+         float3 p0 = h0.xyz / h0.w;
+         float3 p1 = h1.xyz / h1.w;
 
          // Compute the "barycenteric" coordinate on the segment.
          // TODO: Perspective correct
@@ -187,9 +187,17 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
          // Interpolate Vertex Data
          // TODO: Investigate why I had to flip the coords
          const float2 uv = coords.y * v0.vertexUV + coords.x * v1.vertexUV;
+         const float   z = coords.y * h0.z + coords.x * h1.z;
+
+         // Coverage Test
+         const float coverage = Line(UVh, p0.xy, p1.xy);
 
          // Invoke Fragment Shader and mask by Coverage
-         result += Frag(i / _PerStrandIndexCount, uv) * Line(UVh, p0.xy, p1.xy);
+         if (coverage > 0 && z > Z)
+         {
+            result = Frag(i / _PerStrandIndexCount, uv) * coverage;
+            Z = z;
+         }
     }
 #endif
 
