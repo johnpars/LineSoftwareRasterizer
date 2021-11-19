@@ -1,6 +1,7 @@
 #define LAYOUT_INTERLEAVED 1 // Force to interleaved for now
 // #define DEBUG_VIEW_VERTICES 1
 #define DEBUG_COLOR_STRAND 1
+#define PERSPECTIVE_CORRECT_INTERPOLATION 1
 
 // Maximum representable floating-point number
 #define FLT_MAX  3.402823466e+38
@@ -79,7 +80,7 @@ float Line(float2 P, float2 A, float2 B)
     float t = clamp(dot(T, AP), 0.0, l);
     float2 closestPoint = A + t * T;
 
-    float distanceToClosest = 1.0 - (length(closestPoint - P) / 0.00075);
+    float distanceToClosest = 1.0 - (length(closestPoint - P) / 0.0015);
     float i = clamp(distanceToClosest, 0.0, 1.0);
 
     return sqrt(i);
@@ -91,12 +92,6 @@ float2 ComputeBarycentricCoordinates(float2 P, float2 A, float2 B)
     float2 AP = P - A;
 
     float2 C = A + dot(AP, AB) / dot(AB, AB) * AB;
-
-//    float2 T = normalize(AB);
-//    float l = length(AB);
-//
-//    float t = clamp(dot(T, AP), 0.0, l);
-//    float2 closestPoint = A + t * T;
 
     float t = length(C - A) / length(AB);
 
@@ -181,7 +176,13 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
          // Compute the "barycenteric" coordinate on the segment.
          // TODO: Perspective correct
          // (technically redundant computation as we already calculate some of this information in line coverage)
-         const float2 coords = ComputeBarycentricCoordinates(UVh, p0.xy, p1.xy);
+         float2 coords = ComputeBarycentricCoordinates(UVh, p0.xy, p1.xy);
+
+#if PERSPECTIVE_CORRECT_INTERPOLATION
+         // Ensure perspective correct coordinates.
+         const float2 w = rcp(float2(h0.w, h1.w));
+         coords = (coords * w) / dot(coords, w);
+#endif
 
          // Interpolate Vertex Data
          // TODO: Investigate why I had to flip the coords
