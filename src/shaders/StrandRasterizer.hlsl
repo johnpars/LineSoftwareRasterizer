@@ -79,7 +79,7 @@ float Line(float2 P, float2 A, float2 B)
     float t = clamp(dot(T, AP), 0.0, l);
     float2 closestPoint = A + t * T;
 
-    float distanceToClosest = 1.0 - (length(closestPoint - P) / 0.001);
+    float distanceToClosest = 1.0 - (length(closestPoint - P) / 0.00075);
     float i = clamp(distanceToClosest, 0.0, 1.0);
 
     return sqrt(i);
@@ -179,11 +179,13 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
          const float3 p1 = h1.xyz / h1.w;
 
          // Compute the "barycenteric" coordinate on the segment.
+         // TODO: Perspective correct
          // (technically redundant computation as we already calculate some of this information in line coverage)
          const float2 coords = ComputeBarycentricCoordinates(UVh, p0.xy, p1.xy);
 
          // Interpolate Vertex Data
-         const float2 uv = coords.x * v0.vertexUV + coords.y * v1.vertexUV;
+         // TODO: Investigate why I had to flip the coords
+         const float2 uv = coords.y * v0.vertexUV + coords.x * v1.vertexUV;
 
          // Invoke Fragment Shader and mask by Coverage
          result += Frag(i / _PerStrandIndexCount, uv) * Line(UVh, p0.xy, p1.xy);
