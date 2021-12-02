@@ -1,7 +1,7 @@
 #define LAYOUT_INTERLEAVED 1 // Force to interleaved for now
 // #define DEBUG_VIEW_VERTICES 1
 #define DEBUG_COLOR_STRAND 1
-// #define OPAQUE 1
+//#define OPAQUE 1
 #define PERSPECTIVE_CORRECT_INTERPOLATION 1
 
 // Maximum representable floating-point number
@@ -108,7 +108,7 @@ void InitializeBlendingArray(inout Fragment B[LAYERS_PER_PIXEL + 1])
     Fragment F;
     F.a = 0;
     F.t = 1;
-    F.z = FLT_MAX;
+    F.z = -FLT_MAX;
 
     for (int i = 0; i < LAYERS_PER_PIXEL + 1; i++)
     {
@@ -124,7 +124,7 @@ void InsertFragment(in Fragment F, inout Fragment B[LAYERS_PER_PIXEL + 1])
     Fragment temp, merge;
     for (int i = 0; i < LAYERS_PER_PIXEL + 1; i++)
     {
-        if (F.z <= B[i].z)
+        if (F.z >= B[i].z)
         {
             temp = B[i];
             B[i] = F;
@@ -161,7 +161,7 @@ float rand(float co) { return frac(sin(co*(91.3458)) * 47453.5453); }
 float4 Frag(uint strandIndex, float2 uv, float3 positionOS)
 {
     const float3 c = DEBUG_COLOR(strandIndex);
-    return float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.15); // lerp(c, 1 - c, uv.x);
+    return float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.35); // lerp(c, 1 - c, uv.x);
 }
 
 [numthreads(8, 8, 1)]
@@ -212,7 +212,7 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
          float d = ComputeSegmentCoverageAndBarycentericCoordinate(UVh, p0.xy, p1.xy, coord);
 
          // Compute the segment coverage provided by the segment distance.
-         float coverage = 1 - smoothstep(0.0, 0.002, d);
+         float coverage = 1 - smoothstep(0.0, 0.001, d);
 
          float2 coords = float2(
             coord,
@@ -249,7 +249,7 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
             Fragment f;
             f.a = fragmentValue.rgb * alpha;
             f.t = 1.0 - alpha;
-            f.z = 1 - z;
+            f.z = z;
 
             InsertFragment(f, B);
 #endif
