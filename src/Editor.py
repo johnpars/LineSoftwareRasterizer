@@ -138,12 +138,14 @@ class Editor:
         imgui.end()
 
     def RebuildStrands(self):
-        # Need to manually round this
+        # Need to manually round this due to lack of integer imgui bindings
         self.m_generation_settings.strandCount = int(round(self.m_generation_settings.strandCount))
         self.m_generation_settings.strandParticleCount = int(round(self.m_generation_settings.strandParticleCount))
 
         # Produce a strand group based on the input settings...
         self.m_strands = StrandFactory.Build(self.m_generation_settings)
+        self.m_strands.strandCount = self.m_generation_settings.strandCount
+        self.m_strands.strandParticleCount = self.m_generation_settings.strandParticleCount
 
         # ...and inform the device to reformat the buffers
         # (position data will be bound later in a separate compute buffer, to similarly resemble the full data model).

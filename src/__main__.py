@@ -38,8 +38,8 @@ def OnRender(render_args: gpu.RenderArgs):
     # Draw the strands.
     StrandRasterizer.Go(
         cmd,
-        strands.strandCount,
-        strands.strandParticleCount,
+        editor.m_strands.strandCount,
+        editor.m_strands.strandParticleCount,
         deviceMemory,
         output_target,
         editor.camera.view_matrix,

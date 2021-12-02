@@ -19,10 +19,10 @@ class PrimitiveType:
 @dataclass
 class Settings:
     # General
-    primitive: PrimitiveType = PrimitiveType.StratifiedCurtain
-    strandCount: int = 32
+    primitive: PrimitiveType = PrimitiveType.Brush
+    strandCount: int = 16
     strandParticleCount: int = 32
-    strandLength: float = 0.25
+    strandLength: float = 2
     strandLengthVariation: bool = False
     strandLengthVariationAmount: float = 0.2
 

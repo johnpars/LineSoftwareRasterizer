@@ -1,10 +1,13 @@
 #define LAYOUT_INTERLEAVED 1 // Force to interleaved for now
 // #define DEBUG_VIEW_VERTICES 1
 #define DEBUG_COLOR_STRAND 1
+// #define OPAQUE 1
 #define PERSPECTIVE_CORRECT_INTERPOLATION 1
 
 // Maximum representable floating-point number
 #define FLT_MAX  3.402823466e+38
+
+#define ZERO_INITIALIZE(type, name) name = (type)0;
 
 struct StrandData
 {
@@ -15,6 +18,20 @@ struct Vertex
 {
     float vertexID;
     float vertexUV;
+};
+
+struct VertexOutput
+{
+    float2 texcoord;
+    float3 positionOS;
+    float4 positionCS;
+};
+
+struct Fragment
+{
+    float3 a;
+    float  t;
+    float  z;
 };
 
 StructuredBuffer<Vertex> _VertexBuffer : register(t0);
@@ -36,6 +53,9 @@ cbuffer Constants : register(b0)
 #define _PerStrandSegmentCount (_PerStrandVertexCount - 1)
 #define _PerStrandIndexCount   (_PerStrandSegmentCount * 2)
 #define _IndexCount            _StrandCount * _PerStrandIndexCount
+
+// The maximum number of fragments to correctly blend per-pixel.
+#define LAYERS_PER_PIXEL 32
 
 #if LAYOUT_INTERLEAVED
     #define DECLARE_STRAND(x)							\
@@ -68,41 +88,60 @@ float3 ColorCycle(uint index, uint count)
 	return 1.0 - c * c;
 }
 
-// Trivial distance-to-line equation to compute coverage with alpha.
-float Line(float2 P, float2 A, float2 B)
+// Signed distance to a line segment.
+// Ref: https://www.shadertoy.com/view/3tdSDj
+float ComputeSegmentCoverageAndBarycentericCoordinate(float2 P, float2 A, float2 B, out float H)
 {
-    float2 AB = B - A;
-    float2 AP = P - A;
+    float2 BA = B - A;
+    float2 PA = P - A;
 
-    float2 T = normalize(AB);
-    float l = length(AB);
+    // Also output the 'barycentric' segment coordinate computed as a bi-product of the coverage.
+    H = clamp( dot(PA, BA) / dot(BA, BA), 0.0, 1.0);
 
-    float t = clamp(dot(T, AP), 0.0, l);
-    float2 closestPoint = A + t * T;
-
-    float distanceToClosest = 1.0 - (length(closestPoint - P) / 0.0015);
-    float i = clamp(distanceToClosest, 0.0, 1.0);
-
-    return sqrt(i);
+    return length(PA - H * BA);
 }
 
-float2 ComputeBarycentricCoordinates(float2 P, float2 A, float2 B)
+void InitializeBlendingArray(inout Fragment B[LAYERS_PER_PIXEL + 1])
 {
-    float2 AB = B - A;
-    float2 AP = P - A;
+    // Create the default fragment.
+    // (These defaults are important due to how we merge for memory compression).
+    Fragment F;
+    F.a = 0;
+    F.t = 1;
+    F.z = FLT_MAX;
 
-    float2 C = A + dot(AP, AB) / dot(AB, AB) * AB;
+    for (int i = 0; i < LAYERS_PER_PIXEL + 1; i++)
+    {
+        B[i] = F;
+    }
+}
 
-    float t = length(C - A) / length(AB);
+// Implementation of "Multi-Layer Alpha Blending"
+// Ref: https://www.intel.com/content/dam/develop/external/us/en/documents/i3d14-mlab-preprint.pdf
+void InsertFragment(in Fragment F, inout Fragment B[LAYERS_PER_PIXEL + 1])
+{
+    // 1-Pass bubble sort to insert the fragment.
+    Fragment temp, merge;
+    for (int i = 0; i < LAYERS_PER_PIXEL + 1; i++)
+    {
+        if (F.z <= B[i].z)
+        {
+            temp = B[i];
+            B[i] = F;
+            F    = temp;
+        }
+    }
 
-    return float2(
-            t,
-        1 - t
-    );
+    // Compression (merge the last two rows since we have a fixed memory size).
+    const int m = LAYERS_PER_PIXEL;
+    merge.a = B[m - 1].a + B[m].a * B[m - 1].t;
+    merge.t = B[m - 1].t * B[m].t;
+    merge.z = B[m - 1].z;
+    B[m - 1] = merge;
 }
 
 // Theoretical Vertex Shader Program
-float4 Vert(uint vertexID)
+float4 Vert(uint vertexID, out float3 positionOS)
 {
     uint linearParticleIndex = vertexID;
     DECLARE_STRAND(vertexID / _StrandParticleCount)
@@ -111,14 +150,18 @@ float4 Vert(uint vertexID)
 
     const StrandData strandData = _StrandDataBuffer[i];
 
+    positionOS = strandData.strandPositionOS;
+
     return mul(mul(float4(strandData.strandPositionOS, 1.0), _MatrixV), _MatrixP);
 }
 
+float rand(float co) { return frac(sin(co*(91.3458)) * 47453.5453); }
+
 // Theoretical Fragment Shader Program
-float3 Frag(uint strandIndex, float2 uv)
+float4 Frag(uint strandIndex, float2 uv, float3 positionOS)
 {
     const float3 c = DEBUG_COLOR(strandIndex);
-    return c; //lerp(c, 1 - c, uv.x);
+    return float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.15); // lerp(c, 1 - c, uv.x);
 }
 
 [numthreads(8, 8, 1)]
@@ -130,24 +173,14 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 
     float3 result = _OutputTarget[dispatchThreadID.xy].xyz;
 
-#if DEBUG_VIEW_VERTICES
-    for (int i = 0; i < _StrandCount * _StrandParticleCount; ++i)
-    {
-        const uint v = _VertexBuffer[i];
-        const float4 h = Vert(v);
-
-        if (h.z > 0)
-            continue;
-
-        const float3 p = h.xyz / h.w;
-
-        const float l = length(UVh - p.xy);
-
-        result += Frag(i / _StrandParticleCount) * (1.0 - smoothstep(0, 0.005, l));
-    }
-#else
+#if OPAQUE
     // Maintain a Z-Buffer per-thread
     float Z = -FLT_MAX;
+#else
+    // Create and initialize the blending array.
+    Fragment B[LAYERS_PER_PIXEL + 1];
+    InitializeBlendingArray(B);
+#endif
 
     // Brute force iterate over every segment.
     // Emulates the rasterization of line strips.
@@ -162,8 +195,9 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
          const Vertex v1 = _VertexBuffer[i1];
 
          // Invoke Vertex Shader
-         const float4 h0 = Vert(uint(v0.vertexID));
-         const float4 h1 = Vert(uint(v1.vertexID));
+         float3 positionOS0, positionOS1;
+         const float4 h0 = Vert(uint(v0.vertexID), positionOS0);
+         const float4 h1 = Vert(uint(v1.vertexID), positionOS1);
 
          // Clip if behind the projection plane.
          if (h0.z > 0 || h1.z > 0)
@@ -174,9 +208,16 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
          float3 p1 = h1.xyz / h1.w;
 
          // Compute the "barycenteric" coordinate on the segment.
-         // TODO: Perspective correct
-         // (technically redundant computation as we already calculate some of this information in line coverage)
-         float2 coords = ComputeBarycentricCoordinates(UVh, p0.xy, p1.xy);
+         float coord;
+         float d = ComputeSegmentCoverageAndBarycentericCoordinate(UVh, p0.xy, p1.xy, coord);
+
+         // Compute the segment coverage provided by the segment distance.
+         float coverage = 1 - smoothstep(0.0, 0.002, d);
+
+         float2 coords = float2(
+            coord,
+            1 - coord
+         );
 
 #if PERSPECTIVE_CORRECT_INTERPOLATION
          // Ensure perspective correct coordinates.
@@ -185,19 +226,46 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 #endif
 
          // Interpolate Vertex Data
-         // TODO: Investigate why I had to flip the coords
          const float2 uv = coords.y * v0.vertexUV + coords.x * v1.vertexUV;
-         const float   z = coords.y * h0.z + coords.x * h1.z;
-
-         // Coverage Test
-         const float coverage = Line(UVh, p0.xy, p1.xy);
+         const float3 positionOS = coords.y * positionOS0 + coords.x * positionOS1;
+         const float   z = coords.y * p0.z + coords.x * p1.z;
 
          // Invoke Fragment Shader and mask by Coverage
+         // TODO: Clean up the mess
+#if OPAQUE
          if (coverage > 0 && z > Z)
+#else
+         if (any(coverage))
+#endif
          {
-            result = Frag(i / _PerStrandIndexCount, uv) * coverage;
+#if OPAQUE
+            result = Frag(i / _PerStrandIndexCount, uv, positionOS).rgb * coverage;
             Z = z;
+#else
+            float4 fragmentValue = Frag(i / _PerStrandIndexCount, uv, positionOS);
+
+            float alpha = coverage * fragmentValue.a;
+
+            Fragment f;
+            f.a = fragmentValue.rgb * alpha;
+            f.t = 1.0 - alpha;
+            f.z = 1 - z;
+
+            InsertFragment(f, B);
+#endif
          }
+    }
+
+    // Composite the blending array.
+#if !OPAQUE
+    result = 0;
+
+    float transmittance = 1;
+
+    for (int k = 0; k < LAYERS_PER_PIXEL + 1; k++)
+    {
+        result = result + transmittance * B[k].a;
+        transmittance *= B[k].t;
     }
 #endif
 
