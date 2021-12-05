@@ -1,4 +1,5 @@
 import coalpy.gpu as gpu
+import os
 
 from src import Utility
 from src import Editor
@@ -10,7 +11,8 @@ from src import StrandRasterizer
 deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
-strands = StrandFactory.Build()
+# strands = StrandFactory.BuildProcedural()
+strands = StrandFactory.BuildFromAsset("long_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)

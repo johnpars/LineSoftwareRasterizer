@@ -143,7 +143,7 @@ class Editor:
         self.m_generation_settings.strandParticleCount = int(round(self.m_generation_settings.strandParticleCount))
 
         # Produce a strand group based on the input settings...
-        self.m_strands = StrandFactory.Build(self.m_generation_settings)
+        self.m_strands = StrandFactory.BuildProcedural(self.m_generation_settings)
         self.m_strands.strandCount = self.m_generation_settings.strandCount
         self.m_strands.strandParticleCount = self.m_generation_settings.strandParticleCount
 

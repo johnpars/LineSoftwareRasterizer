@@ -1,14 +1,5 @@
-#define LAYOUT_INTERLEAVED 1 // Force to interleaved for now
-// #define DEBUG_VIEW_VERTICES 1
-#define DEBUG_COLOR_STRAND 1
-//#define OPAQUE 1
-#define PERSPECTIVE_CORRECT_INTERPOLATION 1
-
-// Maximum representable floating-point number
-#define FLT_MAX  3.402823466e+38
-
-#define ZERO_INITIALIZE(type, name) name = (type)0;
-
+// Structures
+// -----------------------------------------------------
 struct StrandData
 {
     float3 strandPositionOS;
@@ -20,13 +11,6 @@ struct Vertex
     float vertexUV;
 };
 
-struct VertexOutput
-{
-    float2 texcoord;
-    float3 positionOS;
-    float4 positionCS;
-};
-
 struct Fragment
 {
     float3 a;
@@ -34,10 +18,23 @@ struct Fragment
     float  z;
 };
 
-StructuredBuffer<Vertex> _VertexBuffer : register(t0);
-Buffer<uint> _IndexBuffer  : register(t1);
+struct VertexOutput
+{
+    float2 texcoord;
+    float3 positionOS;
+    float4 positionCS;
+};
 
+struct FragmentInput
+{
+};
+
+// Buffers
+// -----------------------------------------------------
+StructuredBuffer<Vertex>     _VertexBuffer     : register(t0);
+Buffer<uint>                 _IndexBuffer      : register(t1);
 StructuredBuffer<StrandData> _StrandDataBuffer : register(t2);
+RWTexture2D<float4>          _OutputTarget     : register(u0);
 
 cbuffer Constants : register(b0)
 {
@@ -46,6 +43,19 @@ cbuffer Constants : register(b0)
     float4   _ScreenParams;
     float4   _Params0;
 }
+
+// Defines
+// -----------------------------------------------------
+#define INTERP(coords, a, b) coords.y * a + coords.x * b
+#define ZERO_INITIALIZE(type, name) name = (type)0;
+
+// #define LAYOUT_INTERLEAVED 1 // Force to interleaved for now - however for OBJ needs to be sequential
+#define DEBUG_COLOR_STRAND 1
+//#define OPAQUE 1
+#define PERSPECTIVE_CORRECT_INTERPOLATION 1
+
+// Maximum representable floating-point number
+#define FLT_MAX  3.402823466e+38
 
 #define _StrandCount           _Params0.x
 #define _StrandParticleCount   _Params0.y
@@ -76,8 +86,6 @@ cbuffer Constants : register(b0)
 #else
     #define DEBUG_COLOR(x) ColorCycle(x, _StrandCount * _StrandParticleCount)
 #endif
-
-RWTexture2D<float4> _OutputTarget : register(u0);
 
 float3 ColorCycle(uint index, uint count)
 {
@@ -161,7 +169,7 @@ float rand(float co) { return frac(sin(co*(91.3458)) * 47453.5453); }
 float4 Frag(uint strandIndex, float2 uv, float3 positionOS)
 {
     const float3 c = DEBUG_COLOR(strandIndex);
-    return float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.35); // lerp(c, 1 - c, uv.x);
+    return float4(lerp(c, 1 - c, uv.x), 0.4); // float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.3); // lerp(c, 1 - c, uv.x);
 }
 
 [numthreads(8, 8, 1)]
@@ -226,9 +234,9 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 #endif
 
          // Interpolate Vertex Data
-         const float2 uv = coords.y * v0.vertexUV + coords.x * v1.vertexUV;
-         const float3 positionOS = coords.y * positionOS0 + coords.x * positionOS1;
-         const float   z = coords.y * p0.z + coords.x * p1.z;
+         const float2 uv         = INTERP(coords, v0.vertexUV, v1.vertexUV);
+         const float3 positionOS = INTERP(coords, positionOS0, positionOS1);
+         const float  z          = INTERP(coords, p0.z,        p1.z);
 
          // Invoke Fragment Shader and mask by Coverage
          // TODO: Clean up the mess

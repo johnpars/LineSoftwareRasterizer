@@ -1,5 +1,5 @@
 import math
-
+import os
 import numpy as np
 import random
 
@@ -210,9 +210,42 @@ def GenerateStrands(roots : Roots, settings : Settings) -> Strands:
 
     return Strands(settings.strandCount, settings.strandParticleCount, strandPos, Utility.MemoryLayout.Interleaved)
 
-def Build(settings: Settings = Settings()):
+# Build a strand group based on procedural settings
+def BuildProcedural(settings: Settings = Settings()):
     # Generate the roots based on the primitive placement type.
     roots = GenerateRoots(settings)
 
     # Generate the strands based on the roots and other settings.
     return GenerateStrands(roots, settings)
+
+# Build a strand group based on a line OBJ.
+def BuildFromAsset(path):
+    strandPos = []
+    strandCount = 0
+    strandParticleCount = 0
+
+    root = os.path.dirname(os.path.abspath(__file__))
+
+    try:
+        f = open("{}/data/{}.obj".format(root, path))
+        for line in f:
+            if line[0] == "v":
+                i0 = line.find(" ") + 1
+                i1 = line.find(" ", i0 + 1)
+                i2 = line.find(" ", i1 + 1)
+
+                # Technically pointless as the list is flattened before bound to GPU
+                strandPos.append(Utility.Vector3(
+                    float(line[i0:i1]),
+                    float(line[i1:i2]),
+                    float(line[i2:-1])
+                ))
+            if line[0] == "l":
+                connectivity = [int(s) for s in line.split() if s.isdigit()]
+                strandCount += 1
+                strandParticleCount = len(connectivity)
+        f.close()
+    except IOError:
+        print("Failed to find file at path.")
+
+    return Strands(strandCount, strandParticleCount, np.array(strandPos), Utility.MemoryLayout.Sequential)
