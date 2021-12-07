@@ -4,41 +4,51 @@ import coalpy.gpu as gpu
 
 from src import StrandDeviceMemory
 
-CoreShader = gpu.Shader(file = "StrandRasterizer.hlsl", name = "StrandRasterizer", main_function = "Main")
+ShaderBruteForce = gpu.Shader(file ="StrandRasterizer.hlsl", name ="BruteForce", main_function ="BruteForce")
+ShaderCoarsePass = gpu.Shader(file ="StrandRasterizer.hlsl", name ="CoarsePass", main_function ="CoarsePass")
 
-def Go(cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP, w, h):
+class StrandRasterizer:
 
-    cmd.dispatch(
-        shader = CoreShader,
+    def __init__(self):
+        self.temp = 0
+        return
 
-        constants = np.array([
-            # _MatrixV
-            matrixV[0, 0:4],
-            matrixV[1, 0:4],
-            matrixV[2, 0:4],
-            matrixV[3, 0:4],
+    def BruteForce(self, cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP, w, h):
 
-            # _MatrixP
-            matrixP[0, 0:4],
-            matrixP[1, 0:4],
-            matrixP[2, 0:4],
-            matrixP[3, 0:4],
+        cmd.dispatch(
+            shader = ShaderBruteForce,
 
-            # _ScreenParams
-            [ w, h, 1.0 / w, 1.0 / h ],
+            constants = np.array([
+                # _MatrixV
+                matrixV[0, 0:4],
+                matrixV[1, 0:4],
+                matrixV[2, 0:4],
+                matrixV[3, 0:4],
 
-            # _Params0
-            [ strandCount, strandParticleCount, 0.0, 0.0 ]
-        ], dtype='f'),
+                # _MatrixP
+                matrixP[0, 0:4],
+                matrixP[1, 0:4],
+                matrixP[2, 0:4],
+                matrixP[3, 0:4],
 
-        x = math.ceil(w / 8),
-        y = math.ceil(h / 8),
+                # _ScreenParams
+                [ w, h, 1.0 / w, 1.0 / h ],
 
-        inputs = [
-            strands.mVertexBuffer,
-            strands.mIndexBuffer,
-            strands.mStrandDataBuffer
-        ],
+                # _Params0
+                [ strandCount, strandParticleCount, 0.0, 0.0 ]
+            ], dtype='f'),
 
-        outputs = target
-    )
+            x = math.ceil(w / 8),
+            y = math.ceil(h / 8),
+
+            inputs = [
+                strands.mVertexBuffer,
+                strands.mIndexBuffer,
+                strands.mStrandDataBuffer
+            ],
+
+            outputs = target
+        )
+
+    def CoarsePass(self, cmd):
+        return

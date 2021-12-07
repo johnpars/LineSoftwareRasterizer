@@ -3,6 +3,7 @@ import os
 
 from src import Utility
 from src import Editor
+from src import Debug
 from src import StrandFactory
 from src import StrandDeviceMemory
 from src import StrandRasterizer
@@ -17,6 +18,9 @@ strands = StrandFactory.BuildFromAsset("long_hair")
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
 deviceMemory.BindStrandPositionData(strands.particlePositions)
+
+# Create the rasterizer
+rasterizer = StrandRasterizer.StrandRasterizer()
 
 editor = Editor.Editor(deviceMemory, strands)
 
@@ -38,15 +42,28 @@ def OnRender(render_args: gpu.RenderArgs):
     )
 
     # Draw the strands.
-    StrandRasterizer.Go(
+    # rasterizer.BruteForce(
+    #     cmd,
+    #     editor.m_strands.strandCount,
+    #     editor.m_strands.strandParticleCount,
+    #     deviceMemory,
+    #     output_target,
+    #     editor.camera.view_matrix,
+    #     editor.camera.proj_matrix,
+    #     w, h
+    # )
+
+    # Invoke the coarse rasterizer, binning segments into tiles.
+    rasterizer.CoarsePass(
+        cmd
+    )
+
+    # Debug view the results of the coarse rasterization pass.
+    Debug.SegmentsPerTile(
         cmd,
-        editor.m_strands.strandCount,
-        editor.m_strands.strandParticleCount,
-        deviceMemory,
         output_target,
-        editor.camera.view_matrix,
-        editor.camera.proj_matrix,
-        w, h
+        w, h,
+        rasterizer
     )
 
     editor.render_ui(render_args.imgui)

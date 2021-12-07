@@ -57,7 +57,7 @@ cbuffer Constants : register(b0)
 // Maximum representable floating-point number
 #define FLT_MAX  3.402823466e+38
 
-#define _StrandCount           _Params0.x
+#define _StrandCount           2 // _Params0.x
 #define _StrandParticleCount   _Params0.y
 #define _PerStrandVertexCount  _StrandParticleCount
 #define _PerStrandSegmentCount (_PerStrandVertexCount - 1)
@@ -173,7 +173,7 @@ float4 Frag(uint strandIndex, float2 uv, float3 positionOS)
 }
 
 [numthreads(8, 8, 1)]
-void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
+void BruteForce(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
     // Convert the dispatch coordinates to the generation space [0, 1]
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * _ScreenParams.zw;
@@ -278,4 +278,9 @@ void Main(uint3 dispatchThreadID : SV_DispatchThreadID)
 #endif
 
     _OutputTarget[dispatchThreadID.xy] = float4(result, 1.0);
+}
+
+[numthreads(8, 8, 1)]
+void CoarsePass(uint3 dispatchThreadID : SV_DispatchThreadID)
+{
 }
