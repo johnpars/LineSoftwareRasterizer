@@ -5,8 +5,8 @@ import math
 
 from dataclasses import dataclass
 
-ShaderClearTarget = gpu.Shader(file = "ClearTarget.hlsl", name = "ClearTarget", main_function = "Main")
-
+ShaderClearTarget = gpu.Shader(file = "ClearTarget.hlsl", name = "ClearTarget", main_function = "ClearTarget")
+ShaderClearBuffer = gpu.Shader(file = "ClearTarget.hlsl", name = "ClearBuffer", main_function = "ClearBuffer")
 
 class MemoryLayout:
     Sequential  = 0
@@ -109,4 +109,19 @@ def ClearTarget(cmd, color, target, w, h):
         y = math.ceil(h / 8),
         z = 1,
         outputs = target
+    )
+
+def ClearBuffer(cmd, value, count, target):
+    cmd.dispatch(
+        shader = ShaderClearBuffer,
+        constants = [
+            int(value),
+            int(count)
+        ],
+        outputs = target,
+
+        # WARNING: Currently lazy hardcoded for tile count buffer!
+        x = math.ceil(count / 16),
+        y = 1,
+        z = 1
     )

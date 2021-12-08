@@ -1,3 +1,5 @@
+#include "Utility.hlsl"
+
 // Structures
 // -----------------------------------------------------
 struct StrandData
@@ -57,7 +59,7 @@ cbuffer Constants : register(b0)
 // Maximum representable floating-point number
 #define FLT_MAX  3.402823466e+38
 
-#define _StrandCount           2 // _Params0.x
+#define _StrandCount           _Params0.x
 #define _StrandParticleCount   _Params0.y
 #define _PerStrandVertexCount  _StrandParticleCount
 #define _PerStrandSegmentCount (_PerStrandVertexCount - 1)
@@ -86,15 +88,6 @@ cbuffer Constants : register(b0)
 #else
     #define DEBUG_COLOR(x) ColorCycle(x, _StrandCount * _StrandParticleCount)
 #endif
-
-float3 ColorCycle(uint index, uint count)
-{
-	float t = frac(index / (float)count);
-
-	// Ref: https://www.shadertoy.com/view/4ttfRn
-	float3 c = 3.0 * float3(abs(t - 0.5), t.xx) - float3(1.5, 1.0, 2.0);
-	return 1.0 - c * c;
-}
 
 // Signed distance to a line segment.
 // Ref: https://www.shadertoy.com/view/3tdSDj
@@ -280,7 +273,7 @@ void BruteForce(uint3 dispatchThreadID : SV_DispatchThreadID)
     _OutputTarget[dispatchThreadID.xy] = float4(result, 1.0);
 }
 
-[numthreads(8, 8, 1)]
+[numthreads(16, 1, 1)]
 void CoarsePass(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
 }

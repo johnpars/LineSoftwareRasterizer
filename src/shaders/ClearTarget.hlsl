@@ -1,12 +1,30 @@
-cbuffer Constants : register(b0)
+cbuffer ClearTargetConstants : register(b0)
 {
     float4 ClearColor;
 }
 
-RWTexture2D<float4> OutputTarget : register(u0);
+RWTexture2D<float4> _OutputTarget : register(u0);
 
 [numthreads(8, 8, 1)]
-void Main(uint2 dispatchThreadID : SV_DispatchThreadID)
+void ClearTarget(uint2 dispatchThreadID : SV_DispatchThreadID)
 {
-    OutputTarget[dispatchThreadID] = ClearColor;
+    _OutputTarget[dispatchThreadID] = ClearColor;
+}
+
+cbuffer ClearBufferConstants : register(b0)
+{
+    uint Value;
+    uint Count;
+}
+
+RWBuffer<uint> _OutputBuffer : register(u0);
+
+[numthreads(16, 1, 1)]
+void ClearBuffer(uint2 dispatchThreadID : SV_DispatchThreadID,
+                 uint3 groupID : SV_GroupID)
+{
+    if (dispatchThreadID.x >= Count)
+        return;
+
+    _OutputBuffer[dispatchThreadID.x] = groupID.x;
 }

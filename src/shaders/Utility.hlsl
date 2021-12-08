@@ -261,3 +261,12 @@ float4 OverlayHeatMap(uint2 pixCoord, uint2 tileSize, uint n, uint maxN, float o
     }
     return color;
 }
+
+float3 ColorCycle(uint index, uint count)
+{
+	float t = frac(index / (float)count);
+
+	// Ref: https://www.shadertoy.com/view/4ttfRn
+	float3 c = 3.0 * float3(abs(t - 0.5), t.xx) - float3(1.5, 1.0, 2.0);
+	return 1.0 - c * c;
+}

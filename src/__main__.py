@@ -8,19 +8,22 @@ from src import StrandFactory
 from src import StrandDeviceMemory
 from src import StrandRasterizer
 
+initialWidth  = 1920
+initialHeight = 1080
+
 # Allocate a chunk of device memory resources
 deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
 # strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("long_hair")
+strands = StrandFactory.BuildFromAsset("cube_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
 deviceMemory.BindStrandPositionData(strands.particlePositions)
 
 # Create the rasterizer
-rasterizer = StrandRasterizer.StrandRasterizer()
+rasterizer = StrandRasterizer.StrandRasterizer(initialWidth, initialHeight)
 
 editor = Editor.Editor(deviceMemory, strands)
 
@@ -42,31 +45,36 @@ def OnRender(render_args: gpu.RenderArgs):
     )
 
     # Draw the strands.
-    # rasterizer.BruteForce(
-    #     cmd,
-    #     editor.m_strands.strandCount,
-    #     editor.m_strands.strandParticleCount,
-    #     deviceMemory,
-    #     output_target,
-    #     editor.camera.view_matrix,
-    #     editor.camera.proj_matrix,
-    #     w, h
-    # )
-
-    # Invoke the coarse rasterizer, binning segments into tiles.
-    rasterizer.CoarsePass(
-        cmd
-    )
-
-    # Debug view the results of the coarse rasterization pass.
-    Debug.SegmentsPerTile(
+    rasterizer.BruteForce(
         cmd,
+        editor.m_strands.strandCount,
+        editor.m_strands.strandParticleCount,
+        deviceMemory,
         output_target,
-        w, h,
-        rasterizer
+        editor.camera.view_matrix,
+        editor.camera.proj_matrix,
+        w, h
     )
 
-    editor.render_ui(render_args.imgui)
+#    rasterizer.UpdateResolutionDependentBuffers(w, h)
+#
+#    # Invoke the coarse rasterizer, binning segments into tiles.
+#    rasterizer.CoarsePass(
+#        cmd,
+#        editor.m_strands.strandCount,
+#        deviceMemory,
+#        w, h
+#    )
+#
+#    # Debug view the results of the coarse rasterization pass.
+#    Debug.SegmentsPerTile(
+#        cmd,
+#        output_target,
+#        w, h,
+#        rasterizer
+#    )
+
+    # editor.render_ui(render_args.imgui)
 
     # Schedule the work.
     gpu.schedule(
@@ -75,6 +83,6 @@ def OnRender(render_args: gpu.RenderArgs):
 
 
 # Invoke the window creation and register our render loop.
-window = gpu.Window("StrandRasterizer", 1920, 1080, OnRender)
+window = gpu.Window("StrandRasterizer", initialWidth, initialHeight, OnRender)
 
 gpu.run()

@@ -2,6 +2,7 @@ import math
 import numpy as np
 import coalpy.gpu as gpu
 
+from src import Utility
 from src import StrandDeviceMemory
 
 ShaderBruteForce = gpu.Shader(file ="StrandRasterizer.hlsl", name ="BruteForce", main_function ="BruteForce")
@@ -9,9 +10,33 @@ ShaderCoarsePass = gpu.Shader(file ="StrandRasterizer.hlsl", name ="CoarsePass",
 
 class StrandRasterizer:
 
-    def __init__(self):
-        self.temp = 0
+    CoarseTileSize = 16
+
+    def __init__(self, w, h):
+
+        self.mW = 0
+        self.mH = 0
+        self.UpdateResolutionDependentBuffers(w, h)
+
         return
+
+    def UpdateResolutionDependentBuffers(self, w, h):
+
+        if (w <= self.mW and h <= self.mH):
+            return
+
+        self.mW = w
+        self.mH = h
+
+        cW = math.ceil(w / StrandRasterizer.CoarseTileSize)
+        cH = math.ceil(h / StrandRasterizer.CoarseTileSize)
+
+        self.mCoarseTileSegmentCount = gpu.Buffer(
+            name = "CoarseTileSegmentCount",
+            type = gpu.BufferType.Standard,
+            format = gpu.Format.R32_UINT,
+            element_count = cW * cH
+        )
 
     def BruteForce(self, cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP, w, h):
 
@@ -50,5 +75,26 @@ class StrandRasterizer:
             outputs = target
         )
 
-    def CoarsePass(self, cmd):
+    def CoarsePass(self, cmd, strandCount, strands : StrandDeviceMemory, w, h):
+
+        Utility.ClearBuffer(
+            cmd,
+            0,
+            math.ceil(w / StrandRasterizer.CoarseTileSize) *
+            math.ceil(h / StrandRasterizer.CoarseTileSize),
+            self.mCoarseTileSegmentCount
+        )
+
+        cmd.dispatch(
+            shader = ShaderCoarsePass,
+
+            outputs = [
+                self.mCoarseTileSegmentCount
+            ],
+
+            x = math.ceil(strandCount / StrandRasterizer.CoarseTileSize),
+            y = 1,
+            z = 1
+        )
+
         return
