@@ -162,7 +162,7 @@ float rand(float co) { return frac(sin(co*(91.3458)) * 47453.5453); }
 float4 Frag(uint strandIndex, float2 uv, float3 positionOS)
 {
     const float3 c = DEBUG_COLOR(strandIndex);
-    return float4(lerp(c, 1 - c, uv.x), 0.4); // float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.3); // lerp(c, 1 - c, uv.x);
+    return float4(c, 1); // float4(lerp(c, 1 - c, uv.x), 0.4); // float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.3); // lerp(c, 1 - c, uv.x);
 }
 
 [numthreads(8, 8, 1)]
@@ -273,7 +273,231 @@ void BruteForce(uint3 dispatchThreadID : SV_DispatchThreadID)
     _OutputTarget[dispatchThreadID.xy] = float4(result, 1.0);
 }
 
-[numthreads(16, 1, 1)]
-void CoarsePass(uint3 dispatchThreadID : SV_DispatchThreadID)
+// ----------------------------------------------------------------------------
+
+struct AABB
 {
+    float3 min;
+    float3 max;
+
+    float3 Center()
+    {
+        return (min + max) * 0.5;
+    }
+};
+
+struct SegmentData
+{
+    float4 P0;
+    float4 P1;
+    uint   index;
+};
+
+struct TileListNode
+{
+    SegmentData data;
+    uint        next;
+};
+
+RWBuffer<uint>                   _SegmentCountBuffer     : register(u0);
+RWByteAddressBuffer              _TileHeadPointerBuffer  : register(u1);
+RWStructuredBuffer<TileListNode> _TileSegmentDataBuffer  : register(u2);
+RWStructuredBuffer<uint>         _TileSegmentDataCounter : register(u3);
+
+#define _GroupDim     _Params0.xy
+#define _TileSize     _Params0.z
+#define _TileSizeSS   2.0 * float2(_TileSize.xx / _ScreenParams.xy)
+#define _SegmentCount _Params0.w
+
+bool SegmentIntersectsTile(float3 p0, float3 p1, int x, int y)
+{
+    float2 tileB = float2(x, y);
+    float2 tileE = tileB + 1.0;
+
+    // Construct an AABB of this tile.
+    AABB aabbTile;
+    aabbTile.min = float3(tileB * _TileSizeSS - 1.0, 0.0);
+    aabbTile.max = float3(tileE * _TileSizeSS - 1.0, 1.0);
+
+    // Get the tile's center.
+    float3 center = aabbTile.Center();
+
+    // Re-use the coverage computation to factor in strand width.
+    float unused;
+    float d = ComputeSegmentCoverageAndBarycentericCoordinate(center.xy, p0.xy, p1.xy, unused);
+
+    // Compute the segment coverage provided by the segment distance.
+    float coverage = 1 - smoothstep(0.0, 0.02, d);
+
+    return any(coverage);
+}
+
+// Approach:
+// 1) Build an axis-aligned bounding box per segments/thread.
+// 2) Compute the tile coverage of the segment AABB.
+// 3) Loop over each tile and determine the line coverage on the tile.
+// 4) Build a linked-list per-tile of the resident segments.
+[numthreads(16, 1, 1)]
+void CoarsePass(uint3 i : SV_DispatchThreadID)
+{
+    if (i.x >= _SegmentCount)
+        return;
+
+    // Load Indices
+    const uint i0 = _IndexBuffer[i.x * 2 + 0];
+    const uint i1 = _IndexBuffer[i.x * 2 + 1];
+
+    // Load Vertices
+    const Vertex v0 = _VertexBuffer[i0];
+    const Vertex v1 = _VertexBuffer[i1];
+
+    // Invoke Vertex Shader
+    float3 positionOS0, positionOS1;
+    const float4 h0 = Vert(uint(v0.vertexID), positionOS0);
+    const float4 h1 = Vert(uint(v1.vertexID), positionOS1);
+
+    // Clip if behind the projection plane.
+    if (h0.z > 0 || h1.z > 0)
+        return;
+
+    // Perspective divide
+    float3 p0 = h0.xyz / h0.w;
+    float3 p1 = h1.xyz / h1.w;
+
+    // Compute the segment's AABB
+    AABB aabb;
+    aabb.min = min(p0, p1);
+    aabb.max = max(p0, p1);
+
+    // Transform AABB into tile space.
+    int2 tilesBegin = ((aabb.min.xy * 0.5 + 0.5) * _ScreenParams.xy) / _TileSize;
+    int2 tilesEnd   = ((aabb.max.xy * 0.5 + 0.5) * _ScreenParams.xy) / _TileSize;
+
+    tilesBegin = clamp(tilesBegin, int2(0, 0), uint2(_GroupDim) - 1);
+    tilesEnd   = clamp(tilesEnd,   int2(0, 0), uint2(_GroupDim) - 1);
+
+    // Evaluate the coverage of each tile for this segment.
+    for (int x = tilesBegin.x; x <= tilesEnd.x; ++x)
+    {
+        for (int y = tilesBegin.y; y <= tilesEnd.y; ++y)
+        {
+            if (!SegmentIntersectsTile(p0, p1, x, y))
+                continue;
+
+            uint tileID = y * _GroupDim.x + x;
+
+            uint unused;
+            InterlockedAdd(_SegmentCountBuffer[tileID], 1, unused);
+
+            // Create a new segment entry node.
+            SegmentData data;
+            data.P0 = float4(p0, h0.w);
+            data.P1 = float4(p1, h1.w);
+            data.index = i.x * 2;
+
+            // Retrieve global count segment count and iterate counter.
+            // NOTE: UAVs don't have a counter, emulate the behavior with an extra counter resource.
+#if 0
+            uint segmentCount = _TileSegmentDataBuffer.IncrementCounter();
+#else
+            uint segmentCount;
+            InterlockedAdd(_TileSegmentDataCounter[0], 1, segmentCount);
+#endif
+
+            // Exchange the new head pointer.
+            uint next;
+            _TileHeadPointerBuffer.InterlockedExchange(4 * tileID, segmentCount, next);
+
+            // Add new segment entry to the tile segment linked list.
+            TileListNode node;
+            node.data  = data;
+            node.next  = next;
+            _TileSegmentDataBuffer[segmentCount] = node;
+        }
+    }
+}
+
+cbuffer ConstantsFinePass : register(b0)
+{
+    float4 _FinePassScreenParams;
+    float4 GroupDim;
+}
+
+Buffer<uint>                   _FinePassHeadPointerBuffer : register(t0);
+StructuredBuffer<TileListNode> _FinePassSegmentDataBuffer : register(t1);
+
+#define FINE_RASTERIZER_MAX_DEPTH 64
+#define FINE_RASTERIZER_LAST_NODE 0xFFFFFFFF
+
+#undef _StrandCount
+#undef _StrandParticleCount
+#undef _PerStrandVertexCount
+#undef _PerStrandSegmentCount
+#undef _PerStrandIndexCount
+#undef _IndexCount
+
+#define _StrandCount           GroupDim.z
+#define _StrandParticleCount   GroupDim.w
+#define _PerStrandVertexCount  _StrandParticleCount
+#define _PerStrandSegmentCount (_PerStrandVertexCount - 1)
+#define _PerStrandIndexCount   (_PerStrandSegmentCount * 2)
+#define _IndexCount            _StrandCount * _PerStrandIndexCount
+
+// Approach:
+[numthreads(16, 16, 1)]
+void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
+              uint3 groupID          : SV_GroupID)
+{
+    // Convert the dispatch coordinates to the generation space [0, 1]
+    const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * _FinePassScreenParams.zw;
+    const float2 UVh = -1 + 2 * UV;
+
+    // Compute the flattened group ID.
+    uint tileID = (groupID.y * GroupDim.x) + groupID.x;
+
+    // Grab the head pointer for the tile.
+    uint next = _FinePassHeadPointerBuffer[tileID];
+
+    float4 result = 0;
+    float Z = -FLT_MAX;
+
+    // Create and initialize the blending array.
+    Fragment B[LAYERS_PER_PIXEL + 1];
+    InitializeBlendingArray(B);
+
+    while (next != FINE_RASTERIZER_LAST_NODE)
+    {
+         TileListNode node = _FinePassSegmentDataBuffer[next];
+
+         // Compute the "barycenteric" coordinate on the segment.
+         float coord;
+         float d = ComputeSegmentCoverageAndBarycentericCoordinate(UVh, node.data.P0.xy, node.data.P1.xy, coord);
+
+         // Compute the segment coverage provided by the segment distance.
+         float coverage = 1 - smoothstep(0.0, 0.0006, d);
+
+         float2 coords = float2(
+            coord,
+            1 - coord
+         );
+
+#if PERSPECTIVE_CORRECT_INTERPOLATION
+         // Ensure perspective correct coordinates.
+         const float2 w = rcp(float2(node.data.P0.w, node.data.P1.w));
+         coords = (coords * w) / dot(coords, w);
+#endif
+
+         // Interpolate Vertex Data
+         const float z = INTERP(coords, node.data.P0.z, node.data.P1.z);
+
+         if (coverage > 0 && z > Z)
+         {
+            result = float4(ColorCycle(node.data.index / _PerStrandIndexCount, _StrandCount), 1) * coverage;
+            Z = z;
+         }
+
+         next = node.next;
+    }
+
+    _OutputTarget[dispatchThreadID.xy] = result;
 }

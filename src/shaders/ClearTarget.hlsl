@@ -26,5 +26,5 @@ void ClearBuffer(uint2 dispatchThreadID : SV_DispatchThreadID,
     if (dispatchThreadID.x >= Count)
         return;
 
-    _OutputBuffer[dispatchThreadID.x] = groupID.x;
+    _OutputBuffer[dispatchThreadID.x] = Value;
 }

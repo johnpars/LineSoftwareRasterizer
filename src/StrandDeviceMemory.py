@@ -11,15 +11,15 @@ from src import Utility
 class StrandDeviceMemory:
 
     # VBO
-    kVertexPoolByteSize   = 32 * 1024 * 1024                # 32mb
+    kVertexPoolByteSize   = 128 * 1024 * 1024                # 32mb
     kVertexFormatByteSize = 4 + 4                           # Vertex ID + Vertex UV
 
     # IBO
-    kIndexPoolByteSize    = 16 * 1024 * 1024                # 16mb
+    kIndexPoolByteSize    = 128 * 1024 * 1024                # 16mb
     kIndexFormatByteSize  = 4                               # 32 bit
 
     # Strand Positions
-    kStrandPositionPoolByteSize   = 32 * 1024 * 1024        # 32mb
+    kStrandPositionPoolByteSize   = 128 * 1024 * 1024        # 32mb
     kStrandPositionFormatByteSize = 4 * 3                   # Position
 
 

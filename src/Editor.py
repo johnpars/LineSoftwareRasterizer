@@ -9,6 +9,7 @@ from src import StrandFactory
 from src import StrandDeviceMemory
 from src import Camera as c
 from src import Vector
+from src import Utility
 
 class Editor:
 
@@ -38,8 +39,8 @@ class Editor:
         self.m_strands = strands
 
         # ui panels states
-        self.m_camera_panel = True
-        self.m_strand_panel = True
+        self.m_camera_panel = False
+        self.m_strand_panel = False
 
     @property
     def camera(self):

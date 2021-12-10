@@ -1,3 +1,5 @@
+import time
+
 import coalpy.gpu as gpu
 import os
 
@@ -16,7 +18,7 @@ deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
 # strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("cube_hair")
+strands = StrandFactory.BuildFromAsset("medium_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
@@ -38,43 +40,57 @@ def OnRender(render_args: gpu.RenderArgs):
 
     cmd = gpu.CommandList()
 
+    cmd.begin_marker("ClearColorTarget")
     Utility.ClearTarget(
         cmd,
         [0.0, 0.0, 0.0, 0.0],
         output_target, w, h
     )
+    cmd.end_marker()
 
-    # Draw the strands.
-    rasterizer.BruteForce(
+    rasterizer.UpdateResolutionDependentBuffers(w, h)
+
+    # Invoke the coarse rasterizer, binning segments into tiles.
+    rasterizer.CoarsePass(
         cmd,
         editor.m_strands.strandCount,
         editor.m_strands.strandParticleCount,
         deviceMemory,
-        output_target,
         editor.camera.view_matrix,
         editor.camera.proj_matrix,
         w, h
     )
 
-#    rasterizer.UpdateResolutionDependentBuffers(w, h)
-#
-#    # Invoke the coarse rasterizer, binning segments into tiles.
-#    rasterizer.CoarsePass(
-#        cmd,
-#        editor.m_strands.strandCount,
-#        deviceMemory,
-#        w, h
-#    )
-#
-#    # Debug view the results of the coarse rasterization pass.
-#    Debug.SegmentsPerTile(
-#        cmd,
-#        output_target,
-#        w, h,
-#        rasterizer
-#    )
+    # Invoke the fine rasterizer, processing tiles against the color buffer.
+    rasterizer.FinePass(
+        cmd,
+        editor.m_strands.strandCount,
+        editor.m_strands.strandParticleCount,
+        output_target,
+        w, h
+    )
 
-    # editor.render_ui(render_args.imgui)
+    # Draw the strands.
+    # rasterizer.BruteForce(
+    #     cmd,
+    #     editor.m_strands.strandCount,
+    #     editor.m_strands.strandParticleCount,
+    #     deviceMemory,
+    #     output_target,
+    #     editor.camera.view_matrix,
+    #     editor.camera.proj_matrix,
+    #     w, h
+    # )
+
+    # Debug view the results of the coarse rasterization pass.
+    Debug.SegmentsPerTile(
+        cmd,
+        output_target,
+        w, h,
+        rasterizer
+    )
+
+    editor.render_ui(render_args.imgui)
 
     # Schedule the work.
     gpu.schedule(
