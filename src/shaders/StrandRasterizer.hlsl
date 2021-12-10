@@ -67,7 +67,7 @@ cbuffer Constants : register(b0)
 #define _IndexCount            _StrandCount * _PerStrandIndexCount
 
 // The maximum number of fragments to correctly blend per-pixel.
-#define LAYERS_PER_PIXEL 32
+#define LAYERS_PER_PIXEL 1
 
 #if LAYOUT_INTERLEAVED
     #define DECLARE_STRAND(x)							\
@@ -391,8 +391,8 @@ void CoarsePass(uint3 i : SV_DispatchThreadID)
 
             // Create a new segment entry node.
             SegmentData data;
-            data.P0 = float4(p0, h0.w);
-            data.P1 = float4(p1, h1.w);
+            data.P0 = float4(p0, v0.vertexUV);
+            data.P1 = float4(p1, v1.vertexUV);
             data.index = i.x * 2;
 
             // Retrieve global count segment count and iterate counter.
@@ -443,6 +443,13 @@ StructuredBuffer<TileListNode> _FinePassSegmentDataBuffer : register(t1);
 #define _PerStrandIndexCount   (_PerStrandSegmentCount * 2)
 #define _IndexCount            _StrandCount * _PerStrandIndexCount
 
+// ported from GLSL to HLSL
+// Also see:  https://www.shadertoy.com/view/4sfGzS
+float iqhash( float n )
+{
+    return frac(sin(n)*43758.5453);
+}
+
 // Approach:
 [numthreads(16, 16, 1)]
 void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
@@ -459,7 +466,6 @@ void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
     uint next = _FinePassHeadPointerBuffer[tileID];
 
     float4 result = 0;
-    float Z = -FLT_MAX;
 
     // Create and initialize the blending array.
     Fragment B[LAYERS_PER_PIXEL + 1];
@@ -481,22 +487,40 @@ void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
             1 - coord
          );
 
-#if PERSPECTIVE_CORRECT_INTERPOLATION
-         // Ensure perspective correct coordinates.
-         const float2 w = rcp(float2(node.data.P0.w, node.data.P1.w));
-         coords = (coords * w) / dot(coords, w);
-#endif
+// #if PERSPECTIVE_CORRECT_INTERPOLATION
+//          // Ensure perspective correct coordinates.
+//          const float2 w = rcp(float2(node.data.P0.w, node.data.P1.w));
+//          coords = (coords * w) / dot(coords, w);
+// #endif
 
          // Interpolate Vertex Data
          const float z = INTERP(coords, node.data.P0.z, node.data.P1.z);
+         const float uv = INTERP(coords, node.data.P0.w, node.data.P1.w);
 
-         if (coverage > 0 && z > Z)
+         if (coverage > 0)
          {
-            result = float4(ColorCycle(node.data.index / _PerStrandIndexCount, _StrandCount), 1) * coverage;
-            Z = z;
+            float t = iqhash(node.data.index / 750);
+            float4 fragmentValue = float4(1 * lerp(float3(1, 0, 0), float3(0, 0.6, 1), t), 0.2);
+
+            float alpha = coverage * fragmentValue.a;
+
+            Fragment f;
+            f.a = fragmentValue.rgb * alpha;
+            f.t = 1.0 - alpha;
+            f.z = z;
+
+            InsertFragment(f, B);
          }
 
          next = node.next;
+    }
+
+    float transmittance = 1;
+
+    for (int k = 0; k < LAYERS_PER_PIXEL + 1; k++)
+    {
+        result.rgb = result.rgb + transmittance * B[k].a;
+        transmittance *= B[k].t;
     }
 
     _OutputTarget[dispatchThreadID.xy] = result;
