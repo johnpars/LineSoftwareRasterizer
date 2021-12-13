@@ -18,7 +18,7 @@ deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
 # strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("medium_hair")
+strands = StrandFactory.BuildFromAsset("cube_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)

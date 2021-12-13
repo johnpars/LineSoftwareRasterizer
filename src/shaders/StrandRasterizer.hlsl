@@ -480,7 +480,7 @@ void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
          float d = ComputeSegmentCoverageAndBarycentericCoordinate(UVh, node.data.P0.xy, node.data.P1.xy, coord);
 
          // Compute the segment coverage provided by the segment distance.
-         float coverage = 1 - smoothstep(0.0, 0.0006, d);
+         float coverage = 1 - smoothstep(0.0, 0.001, d);
 
          float2 coords = float2(
             coord,
@@ -500,7 +500,7 @@ void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
          if (coverage > 0)
          {
             float t = iqhash(node.data.index / 750);
-            float4 fragmentValue = float4(1 * lerp(float3(1, 0, 0), float3(0, 0.6, 1), t), 0.2);
+            float4 fragmentValue = float4(1 * lerp(float3(1, 0, 0), float3(0, 0.6, 1), t), 0.8);
 
             float alpha = coverage * fragmentValue.a;
 
