@@ -18,7 +18,7 @@ deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
 # strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("cube_hair")
+strands = StrandFactory.BuildFromAsset("long_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
@@ -40,6 +40,7 @@ def OnRender(render_args: gpu.RenderArgs):
 
     cmd = gpu.CommandList()
 
+    # Clear the color target.
     cmd.begin_marker("ClearColorTarget")
     Utility.ClearTarget(
         cmd,
@@ -48,47 +49,28 @@ def OnRender(render_args: gpu.RenderArgs):
     )
     cmd.end_marker()
 
-    rasterizer.UpdateResolutionDependentBuffers(w, h)
-
-    # Invoke the coarse rasterizer, binning segments into tiles.
-    rasterizer.CoarsePass(
-        cmd,
-        editor.m_strands.strandCount,
-        editor.m_strands.strandParticleCount,
-        deviceMemory,
+    # Create the new frame context.
+    context = StrandRasterizer.Context(
+        cmd, w, h,
         editor.camera.view_matrix,
         editor.camera.proj_matrix,
-        w, h
-    )
-
-    # Invoke the fine rasterizer, processing tiles against the color buffer.
-    rasterizer.FinePass(
-        cmd,
+        deviceMemory,
         editor.m_strands.strandCount,
+        editor.m_strands.strandCount * (editor.m_strands.strandParticleCount - 1),
         editor.m_strands.strandParticleCount,
-        output_target,
-        w, h
+        output_target
     )
 
-    # Draw the strands.
-    # rasterizer.BruteForce(
-    #     cmd,
-    #     editor.m_strands.strandCount,
-    #     editor.m_strands.strandParticleCount,
-    #     deviceMemory,
-    #     output_target,
-    #     editor.camera.view_matrix,
-    #     editor.camera.proj_matrix,
-    #     w, h
-    # )
+    # Invoke the hair strand rasterizer.
+    rasterizer.Go(context)
 
     # Debug view the results of the coarse rasterization pass.
-    Debug.SegmentsPerTile(
-        cmd,
-        output_target,
-        w, h,
-        rasterizer
-    )
+    # Debug.SegmentsPerTile(
+    #     cmd,
+    #     output_target,
+    #     w, h,
+    #     rasterizer
+    # )
 
     editor.render_ui(render_args.imgui)
 

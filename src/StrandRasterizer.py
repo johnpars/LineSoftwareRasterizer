@@ -2,12 +2,30 @@ import math
 import numpy as np
 import coalpy.gpu as gpu
 
+from dataclasses import dataclass
+
 from src import Utility
 from src import StrandDeviceMemory
 
-ShaderBruteForce = gpu.Shader(file ="StrandRasterizer.hlsl", name ="BruteForce", main_function ="BruteForce")
-ShaderCoarsePass = gpu.Shader(file ="StrandRasterizer.hlsl", name ="CoarsePass", main_function ="CoarsePass")
-ShaderFinePass   = gpu.Shader(file ="StrandRasterizer.hlsl", name ="FinePass",   main_function ="FinePass")
+ShaderBruteForce       = gpu.Shader(file ="StrandRasterizer.hlsl", name ="BruteForce",       main_function ="BruteForce")
+ShaderSegmentSetupPass = gpu.Shader(file ="SegmentSetup.hlsl", name ="SegmentSetup", main_function ="SegmentSetup")
+ShaderCoarsePass       = gpu.Shader(file ="StrandRasterizer.hlsl", name ="CoarsePass",       main_function ="CoarsePass")
+ShaderFinePass         = gpu.Shader(file ="StrandRasterizer.hlsl", name ="FinePass",         main_function ="FinePass")
+
+# Container for various contextual frame information.
+@dataclass
+class Context:
+    cmd: gpu.CommandList
+    w: int
+    h: int
+    matrixV: np.ndarray
+    matrixP: np.ndarray
+    strands: StrandDeviceMemory
+    strandCount: int
+    segmentCount: int
+    strandParticleCount: int
+    target: gpu.Texture
+
 
 class StrandRasterizer:
 
@@ -18,6 +36,13 @@ class StrandRasterizer:
     CoarseTileSize = 16
 
     def __init__(self, w, h):
+
+        self.mSegmentBuffer = gpu.Buffer(
+            name = "SegmentBuffer",
+            type = gpu.BufferType.Structured,
+            stride = StrandRasterizer.SegmentBufferFormatByteSize,
+            element_count = math.ceil(StrandRasterizer.SegmentBufferPoolByteSize / StrandRasterizer.SegmentBufferFormatByteSize)
+        )
 
         # Create the tile segment data buffer.
         self.mCoarseTileSegmentBuffer = gpu.Buffer(
@@ -34,11 +59,66 @@ class StrandRasterizer:
             element_count = 1
         )
 
+        self.CreateConstantBuffers()
+
         self.mW = 0
         self.mH = 0
         self.UpdateResolutionDependentBuffers(w, h)
 
         return
+
+    def CreateConstantBuffers(self):
+
+        # Segment Setup
+        self.mConstantBufferSegmentSetup = gpu.Buffer(
+            name = "ConstantBufferSegmentSetup",
+            type = gpu.BufferType.Structured,
+            stride = (4 * 4),
+            element_count = 1,
+            is_constant_buffer = True
+        )
+
+        # Vertex Shader
+        self.mConstantBufferVertex = gpu.Buffer(
+            name = "ConstantBufferVertex",
+            type = gpu.BufferType.Structured,
+            stride = ((4 * 4) * 4) + ((4 * 4) * 4) + (4 * 4), # Matrix V, Matrix P, Params
+            element_count = 1,
+            is_constant_buffer = True
+        )
+
+    def UpdateConstantBuffers(self, context):
+
+        context.cmd.begin_marker("UpdateConstantBuffers")
+
+        # Vertex Shader
+        context.cmd.upload_resource(
+            source=np.array([
+                # _MatrixV
+                context.matrixV[0, 0:4],
+                context.matrixV[1, 0:4],
+                context.matrixV[2, 0:4],
+                context.matrixV[3, 0:4],
+
+                # _MatrixP
+                context.matrixP[0, 0:4],
+                context.matrixP[1, 0:4],
+                context.matrixP[2, 0:4],
+                context.matrixP[3, 0:4],
+
+                # _VertexParams
+                [context.strandCount, context.strandParticleCount, 0, 0],
+            ], dtype='f'),
+            destination=self.mConstantBufferVertex
+        )
+
+        # Segment Setup
+        context.cmd.upload_resource(
+            source = np.array([context.segmentCount, 0, 0, 0], dtype='f'),
+            destination = self.mConstantBufferSegmentSetup
+        )
+
+        context.cmd.end_marker()
 
     def UpdateResolutionDependentBuffers(self, w, h):
 
@@ -101,41 +181,70 @@ class StrandRasterizer:
             outputs = target
         )
 
-    def ClearCoarsePassBuffers(self, cmd, w, h):
-        cmd.begin_marker("ClearCoarseBuffers")
+    def ClearCoarsePassBuffers(self, context):
+        context.cmd.begin_marker("ClearCoarseBuffers")
 
         # Tile segment counter buffer
         Utility.ClearBuffer(
-            cmd,
+            context.cmd,
             0,
-            math.ceil(w / StrandRasterizer.CoarseTileSize) *
-            math.ceil(h / StrandRasterizer.CoarseTileSize),
+            math.ceil(context.w / StrandRasterizer.CoarseTileSize) *
+            math.ceil(context.h / StrandRasterizer.CoarseTileSize),
             self.mCoarseTileSegmentCount
         )
 
         # Tile head pointer buffer
         Utility.ClearBuffer(
-            cmd,
+            context.cmd,
             -1, # 0xFFFFFFFF
-            math.ceil(w / StrandRasterizer.CoarseTileSize) *
-            math.ceil(h / StrandRasterizer.CoarseTileSize),
+            math.ceil(context.w / StrandRasterizer.CoarseTileSize) *
+            math.ceil(context.h / StrandRasterizer.CoarseTileSize),
             self.mCoarseTileHeadPointerBuffer
         )
 
         # Reset the counter
         Utility.ClearBuffer(
-            cmd,
+            context.cmd,
             0,
             1,
             self.mCoarseTileSegmentCounter
         )
 
-        cmd.end_marker()
+        context.cmd.end_marker()
+
+    def SegmentSetupPass(self, context):
+        context.cmd.begin_marker("SegmentSetupPass")
+
+        context.cmd.dispatch(
+            shader = ShaderSegmentSetupPass,
+
+            constants=[
+                self.mConstantBufferSegmentSetup,
+                self.mConstantBufferVertex
+            ],
+
+            inputs = [
+                context.strands.mVertexBuffer,
+                context.strands.mIndexBuffer,
+                context.strands.mStrandDataBuffer
+            ],
+
+            outputs = [
+                self.mSegmentBuffer
+            ],
+
+            x = math.ceil(context.segmentCount / 1024),
+            y = 1,
+            z = 1
+        )
+
+        context.cmd.end_marker()
+
+    def CoarsePassPersistent(self, context):
+        return
 
     def CoarsePass(self, cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, matrixV, matrixP, w, h):
         cmd.begin_marker("CoarsePass")
-
-        self.ClearCoarsePassBuffers(cmd, w, h)
 
         groupDimX = math.ceil(w / StrandRasterizer.CoarseTileSize)
         groupDimY = math.ceil(h / StrandRasterizer.CoarseTileSize)
@@ -216,4 +325,23 @@ class StrandRasterizer:
         )
 
         cmd.end_marker()
+        return
+
+    def NewFrame(self, context):
+        self.UpdateResolutionDependentBuffers(context.w, context.h)
+        self.UpdateConstantBuffers(context)
+        self.ClearCoarsePassBuffers(context)
+
+    def Go(self, context):
+
+        # 1) Preliminary Rasterization Setup
+        self.NewFrame(context)
+
+        # 2) Segment Setup
+        self.SegmentSetupPass(context)
+
+        # 3) Coarse Raster
+
+        # 4) Fine Raster
+
         return

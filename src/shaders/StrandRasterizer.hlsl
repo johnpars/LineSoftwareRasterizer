@@ -465,6 +465,7 @@ void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
     // Grab the head pointer for the tile.
     uint next = _FinePassHeadPointerBuffer[tileID];
 
+    float Z = -FLT_MAX;
     float4 result = 0;
 
     // Create and initialize the blending array.
@@ -497,19 +498,20 @@ void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
          const float z = INTERP(coords, node.data.P0.z, node.data.P1.z);
          const float uv = INTERP(coords, node.data.P0.w, node.data.P1.w);
 
-         if (coverage > 0)
+         if (coverage > 0 && z > Z)
          {
-            float t = iqhash(node.data.index / 750);
-            float4 fragmentValue = float4(1 * lerp(float3(1, 0, 0), float3(0, 0.6, 1), t), 0.8);
+            float4 fragmentValue = float4(float3(1, 0, 0), 0.1);
+            result = fragmentValue;
+            Z = z;
 
-            float alpha = coverage * fragmentValue.a;
-
-            Fragment f;
-            f.a = fragmentValue.rgb * alpha;
-            f.t = 1.0 - alpha;
-            f.z = z;
-
-            InsertFragment(f, B);
+            //float alpha = coverage * fragmentValue.a;
+//
+            //Fragment f;
+            //f.a = fragmentValue.rgb * alpha;
+            //f.t = 1.0 - alpha;
+            //f.z = z;
+//
+            //InsertFragment(f, B);
          }
 
          next = node.next;
@@ -517,11 +519,11 @@ void FinePass(uint3 dispatchThreadID : SV_DispatchThreadID,
 
     float transmittance = 1;
 
-    for (int k = 0; k < LAYERS_PER_PIXEL + 1; k++)
-    {
-        result.rgb = result.rgb + transmittance * B[k].a;
-        transmittance *= B[k].t;
-    }
+//   for (int k = 0; k < LAYERS_PER_PIXEL + 1; k++)
+//   {
+//       result.rgb = result.rgb + transmittance * B[k].a;
+//       transmittance *= B[k].t;
+//   }
 
     _OutputTarget[dispatchThreadID.xy] = result;
 }

@@ -20,6 +20,12 @@ class Editor:
         self.m_editor_camera.pos = Vector.float3(0, 2, -14)
         self.m_frame_it = 0
 
+        # Temp: debugging camera default
+        self.m_editor_camera.pos = Vector.float3(7.827458, 1.0573884, 7.414528)
+        self.m_editor_camera.transform.rotation = np.quaternion(0.390986784050001, 0.0223924684704286, -0.918854440764099, 0.0483159327309966)
+        self.m_editor_camera.fov = 1.132
+        self.m_editor_camera.transform.update_mats()
+
         # input state
         self.m_right_pressed = False
         self.m_left_pressed = False
