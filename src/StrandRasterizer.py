@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from src import Utility
 from src import StrandDeviceMemory
 
-ShaderBruteForce       = gpu.Shader(file ="StrandRasterizer.hlsl", name ="BruteForce",       main_function ="BruteForce")
-ShaderSegmentSetupPass = gpu.Shader(file ="SegmentSetup.hlsl", name ="SegmentSetup", main_function ="SegmentSetup")
-ShaderCoarsePass       = gpu.Shader(file ="StrandRasterizer.hlsl", name ="CoarsePass",       main_function ="CoarsePass")
-ShaderFinePass         = gpu.Shader(file ="StrandRasterizer.hlsl", name ="FinePass",         main_function ="FinePass")
+S_SegmentSetup = gpu.Shader(file="SegmentSetup.hlsl", name="SegmentSetup", main_function="SegmentSetup")
+S_RasterBin    = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",    main_function="RasterBin")
+S_RasterCoarse = gpu.Shader(file="RasterCoarse.hlsl", name="RasterCoarse", main_function="RasterCoarse")
+S_RasterFine   = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",   main_function="RasterFine")
 
 # Container for various contextual frame information.
 @dataclass
@@ -30,8 +30,8 @@ class Context:
 class StrandRasterizer:
 
     # Tile Segment Buffer
-    SegmentBufferPoolByteSize   = 1024 * 1024 * 1024     # 128mb
-    SegmentBufferFormatByteSize = (4 * 4) + (4 * 4) + 4 + 4 # P0, P1, Segment Index, Next
+    SegmentBufferPoolByteSize   = 1024 * 1024 * 1024         # 1GB
+    SegmentBufferFormatByteSize = (4 * 4) + (4 * 4) + 4 + 4  # P0, P1, Segment Index, Next
 
     CoarseTileSize = 16
 
@@ -52,7 +52,7 @@ class StrandRasterizer:
             element_count = math.ceil(StrandRasterizer.SegmentBufferPoolByteSize / StrandRasterizer.SegmentBufferFormatByteSize)
         )
 
-        self.mCoarseTileSegmentCounter = gpu.Buffer(
+        self.mCounterBuffer = gpu.Buffer(
             name = "CoarseTileSegmentCounter",
             type = gpu.BufferType.Standard,
             format = gpu.Format.R32_UINT,
@@ -144,43 +144,6 @@ class StrandRasterizer:
             element_count = cW * cH
         )
 
-    def BruteForce(self, cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, target : gpu.Texture, matrixV, matrixP, w, h):
-
-        cmd.dispatch(
-            shader = ShaderBruteForce,
-
-            constants = np.array([
-                # _MatrixV
-                matrixV[0, 0:4],
-                matrixV[1, 0:4],
-                matrixV[2, 0:4],
-                matrixV[3, 0:4],
-
-                # _MatrixP
-                matrixP[0, 0:4],
-                matrixP[1, 0:4],
-                matrixP[2, 0:4],
-                matrixP[3, 0:4],
-
-                # _ScreenParams
-                [ w, h, 1.0 / w, 1.0 / h ],
-
-                # _Params0
-                [ strandCount, strandParticleCount, 0.0, 0.0 ]
-            ], dtype='f'),
-
-            x = math.ceil(w / 8),
-            y = math.ceil(h / 8),
-
-            inputs = [
-                strands.mVertexBuffer,
-                strands.mIndexBuffer,
-                strands.mStrandDataBuffer
-            ],
-
-            outputs = target
-        )
-
     def ClearCoarsePassBuffers(self, context):
         context.cmd.begin_marker("ClearCoarseBuffers")
 
@@ -202,21 +165,21 @@ class StrandRasterizer:
             self.mCoarseTileHeadPointerBuffer
         )
 
-        # Reset the counter
+        # Reset the counters
         Utility.ClearBuffer(
             context.cmd,
             0,
             1,
-            self.mCoarseTileSegmentCounter
+            self.mCounterBuffer
         )
 
         context.cmd.end_marker()
 
-    def SegmentSetupPass(self, context):
+    def SegmentSetup(self, context):
         context.cmd.begin_marker("SegmentSetupPass")
 
         context.cmd.dispatch(
-            shader = ShaderSegmentSetupPass,
+            shader = S_SegmentSetup,
 
             constants=[
                 self.mConstantBufferSegmentSetup,
@@ -240,92 +203,77 @@ class StrandRasterizer:
 
         context.cmd.end_marker()
 
-    def CoarsePassPersistent(self, context):
-        return
+    def RasterBin(self, context):
+        context.cmd.begin_marker("BinPass")
 
-    def CoarsePass(self, cmd, strandCount, strandParticleCount, strands : StrandDeviceMemory, matrixV, matrixP, w, h):
-        cmd.begin_marker("CoarsePass")
+        context.cmd.dispatch(
+            shader = S_RasterCoarse,
 
-        groupDimX = math.ceil(w / StrandRasterizer.CoarseTileSize)
-        groupDimY = math.ceil(h / StrandRasterizer.CoarseTileSize)
-
-        # Compute segment count
-        segmentCount = strandCount * (strandParticleCount - 1)
-
-        cmd.dispatch(
-            shader = ShaderCoarsePass,
-
-            constants = np.array([
-                # _MatrixV
-                matrixV[0, 0:4],
-                matrixV[1, 0:4],
-                matrixV[2, 0:4],
-                matrixV[3, 0:4],
-
-                # _MatrixP
-                matrixP[0, 0:4],
-                matrixP[1, 0:4],
-                matrixP[2, 0:4],
-                matrixP[3, 0:4],
-
-                # _ScreenParams
-                [w, h, 1.0 / w, 1.0 / h],
-
-                # _Params0
-                [ groupDimX, groupDimY, StrandRasterizer.CoarseTileSize, segmentCount ]
-            ], dtype='f'),
+            constants=[
+            ],
 
             inputs = [
-                strands.mVertexBuffer,
-                strands.mIndexBuffer,
-                strands.mStrandDataBuffer
+                self.mSegmentBuffer,
             ],
 
             outputs = [
-                self.mCoarseTileSegmentCount,
-                self.mCoarseTileHeadPointerBuffer,
-                self.mCoarseTileSegmentBuffer,
-                self.mCoarseTileSegmentCounter
+                self.mCounterBuffer
             ],
 
-            x = math.ceil(segmentCount / StrandRasterizer.CoarseTileSize),
+            x = math.ceil(context.segmentCount / 1024),
             y = 1,
             z = 1
         )
 
-        cmd.end_marker()
+        context.cmd.end_marker()
 
-        return
+    def RasterCoarse(self, context):
+        context.cmd.begin_marker("CoarsePass")
 
-    def FinePass(self, cmd, strandCount, strandParticleCount, target : gpu.Texture, w, h):
-        cmd.begin_marker("FinePass")
+        context.cmd.dispatch(
+            shader = S_RasterCoarse,
 
-        groupDimX = math.ceil(w / StrandRasterizer.CoarseTileSize)
-        groupDimY = math.ceil(h / StrandRasterizer.CoarseTileSize)
-
-        cmd.dispatch(
-            shader = ShaderFinePass,
-
-            constants = np.array([
-                # _ScreenParams
-                [w, h, 1.0 / w, 1.0 / h],
-                [groupDimX, groupDimY, strandCount, strandParticleCount]
-            ], dtype='f'),
-
-            inputs = [
-                self.mCoarseTileHeadPointerBuffer,
-                self.mCoarseTileSegmentBuffer,
+            constants=[
             ],
 
-            outputs = target,
+            inputs = [
+                self.mSegmentBuffer,
+            ],
 
-            x = math.ceil(w / StrandRasterizer.CoarseTileSize),
-            y = math.ceil(h / StrandRasterizer.CoarseTileSize),
+            outputs = [
+                self.mCounterBuffer
+            ],
+
+            x = math.ceil(context.segmentCount / 1024),
+            y = 1,
             z = 1
         )
 
-        cmd.end_marker()
-        return
+        context.cmd.end_marker()
+
+    def RasterFine(self, context):
+        context.cmd.begin_marker("FinePass")
+
+        context.cmd.dispatch(
+            shader = S_RasterCoarse,
+
+            constants=[
+            ],
+
+            inputs = [
+                self.mSegmentBuffer,
+            ],
+
+            outputs = [
+                self.mCounterBuffer
+            ],
+
+            x = math.ceil(context.segmentCount / 1024),
+            y = 1,
+            z = 1
+        )
+
+        context.cmd.end_marker()
 
     def NewFrame(self, context):
         self.UpdateResolutionDependentBuffers(context.w, context.h)
@@ -333,15 +281,12 @@ class StrandRasterizer:
         self.ClearCoarsePassBuffers(context)
 
     def Go(self, context):
+        context.cmd.begin_marker("Strand Rasterization")
 
-        # 1) Preliminary Rasterization Setup
         self.NewFrame(context)
+        self.SegmentSetup(context)
+        self.RasterBin(context)
+        # self.RasterCoarse(context)
+        # self.RasterFine(context)
 
-        # 2) Segment Setup
-        self.SegmentSetupPass(context)
-
-        # 3) Coarse Raster
-
-        # 4) Fine Raster
-
-        return
+        context.cmd.end_marker()

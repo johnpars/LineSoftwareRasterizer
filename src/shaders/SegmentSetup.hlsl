@@ -8,6 +8,7 @@ cbuffer ConstantsSetup : register(b0)
     float4 _Params;
 }
 
+// TODO: ByteAddress
 StructuredBuffer<VertexInput> _VertexBuffer     : register(t0);
 Buffer<uint>                  _IndexBuffer      : register(t1);
 
@@ -20,11 +21,12 @@ RWStructuredBuffer<SegmentData> _SegmentBuffer : register(u0);
 // Util
 bool ClipVertex(VertexOutput v)
 {
+    // TODO
     return false;
 }
 
 // Kernel
-[numthreads(GROUP_SIZE_1D, 1, 1)]
+[numthreads(NUM_WARP * NUM_THREAD_PER_WARP, 1, 1)]
 void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
     const uint i = dispatchThreadID.x;

@@ -24,7 +24,7 @@ strands = StrandFactory.BuildFromAsset("long_hair")
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
 deviceMemory.BindStrandPositionData(strands.particlePositions)
 
-# Create the rasterizer
+# Create the rasterizer, allocating internal resources.
 rasterizer = StrandRasterizer.StrandRasterizer(initialWidth, initialHeight)
 
 editor = Editor.Editor(deviceMemory, strands)

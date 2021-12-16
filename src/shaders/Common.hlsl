@@ -6,9 +6,10 @@
 #define NUM_WARP            32
 #define NUM_THREAD_PER_WARP 32
 
-#define GROUP_SIZE_1D       NUM_WARP * NUM_THREAD_PER_WARP
-
 #define ZERO_INITIALIZE(type, name) name = (type)0;
+
+// Counter indices
+#define ATOMIC_COUNTER_COARSE 0
 
 // Structures
 // -----------------------------------------------------
