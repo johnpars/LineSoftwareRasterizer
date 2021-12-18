@@ -5,23 +5,27 @@ import math
 
 from dataclasses import dataclass
 
-ShaderClearTarget = gpu.Shader(file = "ClearTarget.hlsl", name = "ClearTarget", main_function = "ClearTarget")
-ShaderClearBuffer = gpu.Shader(file = "ClearTarget.hlsl", name = "ClearBuffer", main_function = "ClearBuffer")
+ShaderClearTarget = gpu.Shader(file="ClearTarget.hlsl", name="ClearTarget", main_function="ClearTarget")
+ShaderClearBuffer = gpu.Shader(file="ClearTarget.hlsl", name="ClearBuffer", main_function="ClearBuffer")
+
 
 class MemoryLayout:
-    Sequential  = 0
+    Sequential = 0
     Interleaved = 1
+
 
 @dataclass
 class Vector2:
     x: float
     y: float
 
+
 @dataclass
 class Vector3:
     x: float
     y: float
     z: float
+
 
 #    def __rmul__(self, scalar):
 #        x = self.x + scalar
@@ -47,20 +51,24 @@ def RandomSphereDirection():
     c = math.cos(angle)
     return Vector3(c * r, s * r, z)
 
-def SquareMagnitude(v : Vector3) -> float:
+
+def SquareMagnitude(v: Vector3) -> float:
     return v.x * v.x + v.y * v.y + v.z * v.z
 
-def Cross(a : Vector3, b : Vector3) -> Vector3:
+
+def Cross(a: Vector3, b: Vector3) -> Vector3:
     return Vector3(
         a.y * b.z - a.z * b.y,
         a.z * b.x - a.x * b.z,
         a.x * b.y - a.y * b.z
     )
 
-def Dot(a : Vector3, b : Vector3) -> float:
+
+def Dot(a: Vector3, b: Vector3) -> float:
     return a.x * b.x + a.y * b.y + a.z * b.z
 
-def Normalize(v : Vector3) -> Vector3:
+
+def Normalize(v: Vector3) -> Vector3:
     m = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
 
     return Vector3(
@@ -68,6 +76,7 @@ def Normalize(v : Vector3) -> Vector3:
         v.y / m,
         v.z / m
     )
+
 
 def ProjectOnPlane(v: Vector3, n: Vector3) -> Vector3:
     d = Dot(v, n)
@@ -78,6 +87,7 @@ def ProjectOnPlane(v: Vector3, n: Vector3) -> Vector3:
         v.z - n.z * d / m
     )
 
+
 def NextVectorInPlane(n) -> Vector3:
     while True:
         r = ProjectOnPlane(RandomSphereDirection(), n)
@@ -85,15 +95,17 @@ def NextVectorInPlane(n) -> Vector3:
             break
     return r
 
-def Lerp(a : float, b : float, t : float) -> float:
+
+def Lerp(a: float, b: float, t: float) -> float:
     return (t * a) + ((1 - t) * b)
+
 
 def GetStrandIterator(memoryLayout, strandIndex, strandCount, strandParticleCount):
     if memoryLayout is MemoryLayout.Sequential:
-        strandParticleBegin  = strandIndex * strandParticleCount
+        strandParticleBegin = strandIndex * strandParticleCount
         strandParticleStride = 1
     else:
-        strandParticleBegin  = strandIndex
+        strandParticleBegin = strandIndex
         strandParticleStride = strandCount
 
     strandParticleEnd = strandParticleBegin + strandParticleStride * strandParticleCount
@@ -101,27 +113,32 @@ def GetStrandIterator(memoryLayout, strandIndex, strandCount, strandParticleCoun
     return (strandParticleBegin, strandParticleStride, strandParticleEnd)
 
 
+def Clamp(x, minimum, maximum):
+    return max(minimum, min(x, maximum))
+
+
 def ClearTarget(cmd, color, target, w, h):
     cmd.dispatch(
-        shader = ShaderClearTarget,
-        constants = color,
-        x = math.ceil(w / 8),
-        y = math.ceil(h / 8),
-        z = 1,
-        outputs = target
+        shader=ShaderClearTarget,
+        constants=color,
+        x=math.ceil(w / 8),
+        y=math.ceil(h / 8),
+        z=1,
+        outputs=target
     )
+
 
 def ClearBuffer(cmd, value, count, target):
     cmd.dispatch(
-        shader = ShaderClearBuffer,
-        constants = [
+        shader=ShaderClearBuffer,
+        constants=[
             int(value),
             int(count)
         ],
-        outputs = target,
+        outputs=target,
 
         # WARNING: Currently lazy hardcoded for tile count buffer!
-        x = math.ceil(count / 16),
-        y = 1,
-        z = 1
+        x=math.ceil(count / 16),
+        y=1,
+        z=1
     )

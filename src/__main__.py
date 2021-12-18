@@ -64,6 +64,8 @@ def OnRender(render_args: gpu.RenderArgs):
     # Invoke the hair strand rasterizer.
     rasterizer.Go(context)
 
+    # rasterizer.RasterBruteForce(context)
+
     # Debug view the results of the coarse rasterization pass.
     # Debug.SegmentsPerTile(
     #     cmd,

@@ -165,6 +165,89 @@ float4 Frag(uint strandIndex, float2 uv, float3 positionOS)
     return float4(c, 1); // float4(lerp(c, 1 - c, uv.x), 0.4); // float4(4 * pow(0.5 * positionOS + 0.5, 3), 0.3); // lerp(c, 1 - c, uv.x);
 }
 
+// Defines
+// ----------------------------------------
+
+#define INSIDE 0 // 0000
+#define LEFT   1 // 0001
+#define RIGHT  2 // 0010
+#define BOTTOM 4 // 0100
+#define TOP    8 // 1000
+
+#define xmin -1
+#define xmax +1
+#define ymin -1
+#define ymax +1
+
+// Utility
+//-----------------------------------------
+
+uint ComputeOutCode(float x, float y)
+{
+    uint code = INSIDE;
+    {
+        if      (x < xmin) { code |= LEFT;   }
+        else if (x > xmax) { code |= RIGHT;  }
+        if      (y < ymin) { code |= BOTTOM; }
+        else if (y > ymax) { code |= TOP;    }
+    }
+	return code;
+}
+
+// TODO: Investigate "Improvement in the Cohen-Sutherland Line Segment Clipping Algorithm" for something faster.
+bool ClipSegmentCohenSutherland(inout float x0, inout float y0, inout float x1, inout float y1)
+{
+    uint outCode0 = ComputeOutCode(x0, y0);
+    uint outCode1 = ComputeOutCode(x1, y1);
+
+    bool accept = false;
+
+    for(;;)
+    {
+        // Trivially accept, both points inside the window.
+        if(!(outCode0 | outCode1))
+        {
+            accept = true;
+            break;
+        }
+        // Trivially reject, both points outside the window.
+        else if(outCode0 & outCode1)
+        {
+            break;
+        }
+        // Both tests failed, calculate the clipped segment.
+        else
+        {
+            // One point is outside the window. Need to compute a new point clipped to the window edge.
+            float x, y;
+
+            // Choose the out code that is outside the window.
+            uint outCodeOut = outCode1 > outCode0 ? outCode1 : outCode0;
+
+            // Determine the clipped position based on the out code.
+            if      (outCodeOut & TOP)    { x = x0 + (x1 - x0) * (ymax - y0) / (y1  - y0); y = ymax; }
+            else if (outCodeOut & BOTTOM) { x = x0 + (x1 - x0) * (ymin - y0) / (y1  - y0); y = ymin; }
+            else if (outCodeOut & RIGHT)  { y = y0 + (y1 - y0) * (xmax - x0) / (x1  - x0); x = xmax; }
+            else if (outCodeOut & LEFT)   { y = y0 + (y1 - y0) * (xmin - x0) / (x1  - x0); x = xmin; }
+
+            if (outCodeOut == outCode0)
+            {
+                x0 = x;
+                y0 = y;
+                outCode0 = ComputeOutCode(x0, y0);
+            }
+            else
+            {
+                x1 = x;
+                y1 = y;
+                outCode1 = ComputeOutCode(x1, y1);
+            }
+        }
+    }
+
+    return accept;
+}
+
 [numthreads(8, 8, 1)]
 void BruteForce(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
@@ -197,16 +280,23 @@ void BruteForce(uint3 dispatchThreadID : SV_DispatchThreadID)
 
          // Invoke Vertex Shader
          float3 positionOS0, positionOS1;
-         const float4 h0 = Vert(uint(v0.vertexID), positionOS0);
-         const float4 h1 = Vert(uint(v1.vertexID), positionOS1);
+         float4 h0 = Vert(uint(v0.vertexID), positionOS0);
+         float4 h1 = Vert(uint(v1.vertexID), positionOS1);
 
          // Clip if behind the projection plane.
-         if (h0.z > 0 || h1.z > 0)
+         if (0 < h0.w || 0 < h1.w)
             continue;
 
          // Perspective divide
          float3 p0 = h0.xyz / h0.w;
          float3 p1 = h1.xyz / h1.w;
+
+         // Cohen-Sutherland algorithm to perform line segment clipping.
+         // TODO: Figure out how to do this before the perspective divide, in homogenous coordinates.
+         if(!ClipSegmentCohenSutherland(p0.x, p0.y, p1.x, p1.y))
+         {
+             continue;
+         }
 
          // Compute the "barycenteric" coordinate on the segment.
          float coord;

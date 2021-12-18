@@ -3,13 +3,13 @@
 
 // Hardware specific metrics, based on Nvidia Quadro RTX 8000.
 #define NUM_SM              72
-#define NUM_WARP            32
+#define NUM_WARP_PER_SM     32
 #define NUM_THREAD_PER_WARP 32
 
 #define ZERO_INITIALIZE(type, name) name = (type)0;
 
 // Counter indices
-#define ATOMIC_COUNTER_COARSE 0
+#define ATOMIC_COUNTER_BIN 0
 
 // Structures
 // -----------------------------------------------------
@@ -29,8 +29,17 @@ struct VertexOutput
     float4 positionCS;
 };
 
+struct SegmentHeader
+{
+    int2 v0;
+    int2 v1;
+};
+
 struct SegmentData
 {
-    VertexOutput v0;
-    VertexOutput v1;
+
+
+    // Vertex Indices
+    uint vi0;
+    uint vi1;
 };
