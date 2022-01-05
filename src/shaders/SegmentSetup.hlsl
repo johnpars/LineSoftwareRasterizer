@@ -8,14 +8,14 @@ cbuffer ConstantsSetup : register(b0)
     float4 _Params;
 }
 
-// TODO: ByteAddress for faster load
+// TODO: ByteAddress for faster load and store in SGPR
 StructuredBuffer<VertexInput> _VertexBuffer     : register(t0);
 Buffer<uint>                  _IndexBuffer      : register(t1);
 
 // Outputs
 // ----------------------------------------
 RWStructuredBuffer<uint>          _SegmentCountBuffer  : register(u0);
-RWStructuredBuffer<SegmentHeader> _SegmentHeaderBuffer : register(u1);
+RWStructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(u1);
 
 // Defines
 // ----------------------------------------
@@ -35,6 +35,8 @@ RWStructuredBuffer<SegmentHeader> _SegmentHeaderBuffer : register(u1);
 #define MAX_X +1
 #define MIN_Y -1
 #define MAX_Y +1
+
+#define NUM_WARP 8
 
 // Utility
 //-----------------------------------------
@@ -110,13 +112,17 @@ bool ClipSegmentCohenSutherland(inout float x0, inout float y0, inout float x1, 
 // The mapping is 1-1, so we tag each segment with the amount of processing required.
 // (0 for culled/clipped, 1 for a single segment, >1 for subsegments if tessellated).
 // ----------------------------------------
-[numthreads(NUM_WARP_PER_SM * NUM_THREAD_PER_WARP, 1, 1)]
+[numthreads(NUM_WARP * NUM_THREAD_PER_WARP, 1, 1)]
 void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
     const uint i = dispatchThreadID.x;
 
     if (i >= _SegmentCount)
         return;
+
+    // Prepare the segment record.
+    SegmentRecord record;
+    ZERO_INITIALIZE(SegmentRecord, record);
 
     // Load Indices
     const uint i0 = _IndexBuffer[i * 2 + 0];
@@ -141,7 +147,8 @@ void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
     // Fast rejection for segments behind the near clipping plane.
     if (0 < v[0].w || 0 < v[1].w)
     {
-        _SegmentCountBuffer[i] = 0;
+        _SegmentCountBuffer[i]  = 0;
+        _SegmentRecordBuffer[i] = record;
         return;
     }
 
@@ -152,17 +159,18 @@ void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
     // Cohen-Sutherland algorithm to perform line segment clipping in NDC space.
     if(!ClipSegmentCohenSutherland(p0.x, p0.y, p1.x, p1.y))
     {
-        _SegmentCountBuffer[i] = 0;
+        _SegmentCountBuffer[i]  = 0;
+        _SegmentRecordBuffer[i] = record;
         return;
     }
 
+    // NOTE: This can potentially expand to greater than one if we tessellate the segment.
     _SegmentCountBuffer[i] = 1;
 
-    // Write back to the segment buffer
-    // SegmentData segment;
-    // {
-    //     segment.v0 = o_v0;
-    //     segment.v1 = o_v1;
-    // }
-    // _SegmentBuffer[i] = segment;
+    // Record the segment.
+    {
+        record.v0 = p0.xy;
+        record.v1 = p1.xy;
+    }
+    _SegmentRecordBuffer[i] = record;
 }

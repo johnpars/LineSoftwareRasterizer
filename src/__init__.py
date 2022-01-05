@@ -5,7 +5,11 @@ import coalpy.gpu as gpu
 print ("Devices:")
 [print("{}: {}".format(idx, nm)) for (idx, nm) in gpu.get_adapters()]
 
-gpu.set_current_adapter(0)
+gpu.set_current_adapter(
+    index=0,
+    shader_model=gpu.ShaderModel.Sm6_4,
+    dump_shader_pdbs=True
+)
 
 # try:
 root = os.path.dirname(os.path.abspath(__file__))

@@ -10,15 +10,15 @@ from src import StrandFactory
 from src import StrandDeviceMemory
 from src import StrandRasterizer
 
-initialWidth  = 1920
-initialHeight = 1080
+initialWidth  = 1280
+initialHeight = 720
 
 # Allocate a chunk of device memory resources
 deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
 # strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("long_hair")
+strands = StrandFactory.BuildFromAsset("cube_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
@@ -77,9 +77,7 @@ def OnRender(render_args: gpu.RenderArgs):
     editor.render_ui(render_args.imgui)
 
     # Schedule the work.
-    gpu.schedule(
-        [cmd]
-    )
+    gpu.schedule(cmd)
 
 
 # Invoke the window creation and register our render loop.

@@ -32,10 +32,10 @@ class Context:
 class StrandRasterizer:
 
     # Tile Segment Buffer
-    SegmentBufferPoolByteSize = 1024 * 1024 * 1024  # 1GB
+    SegmentBufferPoolByteSize = 1 * 1024 * 1024  # 1GB
     SegmentBufferFormatByteSize = (4 * 4) + (4 * 4) + 4 + 4  # P0, P1, Segment Index, Next
 
-    MaxSegments = 1 << 22
+    MaxSegments = 1 << 11
     SegmentHeaderFormatByteSize = (4 * 4)
 
     CoarseTileSize = 16
@@ -138,9 +138,10 @@ class StrandRasterizer:
         )
 
         # Bin Raster
-        roundSize = 16 * 32
-        minBatches = (1 << 4) * 2
-        maxRounds = 32
+        # NOTE: GPU Dependent due to wave size / thread block size.
+        roundSize = 8 * 64
+        minBatches = (1 << 4) * 4
+        maxRounds = 64
         batchSize = Utility.Clamp(context.segmentCount / (roundSize * minBatches), 1, maxRounds) * roundSize
 
         context.cmd.upload_resource(
@@ -207,6 +208,8 @@ class StrandRasterizer:
     def SegmentSetup(self, context):
         context.cmd.begin_marker("SegmentSetupPass")
 
+        groupSize = 512
+
         context.cmd.dispatch(
             shader=S_SegmentSetup,
 
@@ -226,7 +229,7 @@ class StrandRasterizer:
                 self.mSegmentHeaderBuffer
             ],
 
-            x=math.ceil(context.segmentCount / 1024),
+            x=math.ceil(context.segmentCount / groupSize),
         )
 
         context.cmd.end_marker()
@@ -249,7 +252,7 @@ class StrandRasterizer:
                 self.mCounterBuffer
             ],
 
-            x=72,
+            x=16,
         )
 
         context.cmd.end_marker()
@@ -351,7 +354,7 @@ class StrandRasterizer:
 
         self.NewFrame(context)
         self.SegmentSetup(context)
-        # self.RasterBin(context)
+        self.RasterBin(context)
         # self.RasterCoarse(context)
         # self.RasterFine(context)
 
