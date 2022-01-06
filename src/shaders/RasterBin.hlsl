@@ -9,11 +9,12 @@ cbuffer ConstantsSetup : register(b0)
 
 // TODO: If we end up not doing tesselation in the segment setup, we can go from uint -> bool. We should also switch
 // to ByteAddressBuffer regardless.
-StructuredBuffer<uint> _SegmentCountBuffer : register(t0);
+StructuredBuffer<uint> _SegmentOutputBuffer : register(t0);
 
 // Outputs
 // ----------------------------------------
-RWBuffer<uint> _CounterBuffer : register(u0);
+RWBuffer<uint> _CounterBuffer : register(u0); // Counter buffer for inter-block coordination via global atomics.
+RWBuffer<uint> _RingBuffer    : register(u1); // Temporary buffer to view memory dump of a block's LDS ring buffer
 
 // Define
 // ----------------------------------------
@@ -21,13 +22,14 @@ RWBuffer<uint> _CounterBuffer : register(u0);
 #define _BatchSize    _Params.y
 
 // Launch 512 threads per processor.
-#define NUM_WARP 8
+#define WAVE_COUNT 8
 
 // Local
 // ----------------------------------------
-groupshared uint g_RingBuffer[NUM_WARP * NUM_THREAD_PER_WARP];  //
-groupshared uint g_RingBufferPrefixScratch[NUM_WARP];           // Utility buffer for computation of the prefix sum.
-groupshared uint g_BatchPos;                                    //
+groupshared uint g_RingBuffer[WAVE_COUNT * NUM_THREAD_PER_WARP]; // Group-sized buffer that contains valid segment indices.
+groupshared uint g_RingBufferPrefixScratch[WAVE_COUNT];          // Utility scratch memory for computation of the group prefix sum.
+groupshared uint g_RingBufferCount;                              //
+groupshared uint g_BatchPos;                                     //
 
 // Utility
 // ----------------------------------------
@@ -36,27 +38,28 @@ groupshared uint g_BatchPos;                                    //
 // TODO: There is likely much better ways to do this, start with this approach for now and optimize later.
 uint GroupPrefixSum(uint laneID, uint x)
 {
-    uint waveID = WaveIndex(laneID);
+    const uint waveID = WaveIndex(laneID);
 
     // Just allow all the lanes to assign the wave sum to the LDS, not exactly sure if this is 'better' than having the
     // first lane in the wave assign it, but if we do that then you need to be careful of computing the wave sum beforehand
     // (else-wise all lanes aside from the first one will be inactive and the sum result be invalid). Since it's stored in
     // and SGPR anyway this is probably ok for now.
+    // Note: Could also just cache this and subtract it from the scratch at the end, to eliminate the second loop.
     g_RingBufferPrefixScratch[waveID] = WaveActiveSum(x);
 
-    // Allow the first lane in the block to compute the prefix sum on the wave sized list.
+    // Allow the first lane in the block to compute the prefix sum on the per-wave value.
     if (laneID == 0)
     {
         uint i;
 
         // 1) Compute the inclusive prefix sum.
-        for (i = 1; i < NUM_WARP; ++i)
+        for (i = 1; i < WAVE_COUNT; ++i)
         {
             g_RingBufferPrefixScratch[i] += g_RingBufferPrefixScratch[i - 1];
         }
 
         // 2) Shift elements once to the right.
-        for (i = NUM_WARP; i >= 1; --i)
+        for (i = WAVE_COUNT; i >= 1; --i)
         {
             g_RingBufferPrefixScratch[i] = g_RingBufferPrefixScratch[i - 1];
         }
@@ -73,9 +76,8 @@ uint GroupPrefixSum(uint laneID, uint x)
 
 // Kernel (1 Thread Block = 1 SM/CU)
 // ----------------------------------------
-[numthreads(NUM_WARP * NUM_THREAD_PER_WARP, 1, 1)]
-void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID,
-               uint  groupIndex : SV_GroupIndex)
+[numthreads(WAVE_COUNT * NUM_THREAD_PER_WARP, 1, 1)]
+void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
 {
     uint batchPos = 0;
 
@@ -98,50 +100,66 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID,
         uint bufferCount = 0;
         uint batchEnd    = min(batchPos + _BatchSize, _SegmentCount);
 
-        // Input phase. Process the batch into the ring buffer as long as there are segments in it.
-        // This process will compact or expand the results of the segment setup (clipping / tesselation).
-        // and ensure that every thread in the group will have some work to do.
+        // Keep processing this batch until it is exhausted.
         do
         {
-            // Keep reading segments in the batch until we have group-size amount of valid segments in the ring buffer.
-            while(bufferCount < NUM_WARP * NUM_THREAD_PER_WARP && batchPos < batchEnd)
-            {
-                uint segmentIndex = batchPos + groupIndex;
+            // Clear the LDS
+            g_RingBuffer[groupIndex] = 0;
 
-                uint num;
+            // Input phase. Add valid segments into the ring buffer until it is full.
+            // This process will compact or expand the results of the segment setup (clipping / tesselation).
+            // and ensure that every thread in the group will have some work to do.
+            while(bufferCount < WAVE_COUNT * NUM_THREAD_PER_WARP && batchPos < batchEnd)
+            {
+                const uint segmentIndex = batchPos + groupIndex;
+
+                // Begin in a culled state.
+                uint segmentOutput = 0;
 
                 // Determine the number of segments emitted by the segment setup stage / clipper at this index.
                 // (Currently we assume zero or one, but potentially more in the future if tessellated).
                 if (segmentIndex < batchEnd)
                 {
-                    num = _SegmentCountBuffer[segmentIndex];
+                    segmentOutput = _SegmentOutputBuffer[segmentIndex];
                 }
 
-                // TODO: If all have work, just do a fast path that has 1-1 mapping of batch -> ring buffer.
-                // See if it brings any additional perf to the binning.
+                // Compute the exclusive prefix sum of the segment number across the thread block.
+                // Use it to determine an index into the ring buffer.
+                const uint ringBufferIndex = bufferCount + GroupPrefixSum(groupIndex, segmentOutput);
 
-                // Compute the exclusive prefix sum of the segment number in the batch. Use it to determine an index
-                uint ringBufferIndex = GroupPrefixSum(groupIndex, num);
+                // Update the indices of the loop.
+                {
+                    // Find the maximum index in the thread block.
+                    InterlockedMax(g_RingBufferCount, ringBufferIndex);
+                    GroupMemoryBarrierWithGroupSync();
 
-                // For tomorrow, take in an input buffer that is halfway clipped on the screen. Then run the prefix sum and write
-                // to an output buffer the segment indices that passed the clipping.
+                    // Shift forward the batch position as well
+                    g_BatchPos = batchPos + WAVE_COUNT * NUM_THREAD_PER_WARP;
+                }
 
                 // Record the segment to the ring buffer.
-                if (num)
+                if (segmentOutput)
                 {
                     g_RingBuffer[ringBufferIndex] = segmentIndex;
                 }
                 GroupMemoryBarrierWithGroupSync();
 
-                // Early out for now.
-                return;
+                // TEMP: Write the ring buffer in LDS out to global memory to debug.
+                _RingBuffer[batchPos + groupIndex] = g_RingBuffer[groupIndex];
+
+                bufferCount = g_RingBufferCount;
+                batchPos    = g_BatchPos;
             }
 
+            // TODO: Process the ring buffer. Assign a segment per-lane.
+
             // Early out for now.
-            return;
+            break;
         }
         while(bufferCount > 0 || batchPos < batchEnd);
 
         // Rasterization phase.
+
+        return;
     }
 }

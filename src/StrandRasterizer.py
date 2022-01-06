@@ -32,10 +32,10 @@ class Context:
 class StrandRasterizer:
 
     # Tile Segment Buffer
-    SegmentBufferPoolByteSize = 1 * 1024 * 1024  # 1GB
+    SegmentBufferPoolByteSize = 32 * 1024 * 1024  # 1GB
     SegmentBufferFormatByteSize = (4 * 4) + (4 * 4) + 4 + 4  # P0, P1, Segment Index, Next
 
-    MaxSegments = 1 << 11
+    MaxSegments = 1 << 22
     SegmentHeaderFormatByteSize = (4 * 4)
 
     CoarseTileSize = 16
@@ -69,6 +69,14 @@ class StrandRasterizer:
             type=gpu.BufferType.Standard,
             format=gpu.Format.R32_UINT,
             element_count=1
+        )
+
+        # Temp Ring Buffer view
+        self.mRingBuffer = gpu.Buffer(
+            name="RingBuffer",
+            type=gpu.BufferType.Standard,
+            format=gpu.Format.R32_UINT,
+            element_count=StrandRasterizer.MaxSegments
         )
 
         self.CreateConstantBuffers()
@@ -203,6 +211,13 @@ class StrandRasterizer:
             self.mCounterBuffer
         )
 
+        Utility.ClearBuffer(
+            context.cmd,
+            0,
+            StrandRasterizer.MaxSegments,
+            self.mRingBuffer
+        )
+
         context.cmd.end_marker()
 
     def SegmentSetup(self, context):
@@ -249,7 +264,8 @@ class StrandRasterizer:
             ],
 
             outputs=[
-                self.mCounterBuffer
+                self.mCounterBuffer,
+                self.mRingBuffer
             ],
 
             x=16,

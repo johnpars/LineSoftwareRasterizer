@@ -4,6 +4,7 @@ import numpy as np
 
 from dataclasses import dataclass
 from src import StrandRasterizer
+from src import Utility
 
 TextureFont = gpu.Texture(file="DebugFont.jpg")
 SamplerFont = gpu.Sampler(filter_type=gpu.FilterType.Linear)
@@ -17,63 +18,68 @@ class Stats:
     segmentCount: int
     segmentCountPassedFrustumCull: int
 
+class Debug:
+    def __init__(self):
+        self.mFrustumCountOutput = gpu.Buffer(
+            type=gpu.BufferType.Standard,
+            format=gpu.Format.R32_UINT,
+            element_count=1
+        )
 
-def ComputeStats(rasterizer, context) -> Stats:
-    cmd = gpu.CommandList()
+    def ComputeStats(self, cmd, rasterizer, context) -> Stats:
 
-    output = gpu.Buffer(
-        type=gpu.BufferType.Standard,
-        format=gpu.Format.R32_UINT,
-        element_count=1
-    )
+        Utility.ClearBuffer(
+            cmd,
+            0,
+            1,
+            self.mFrustumCountOutput
+        )
 
-    cmd.dispatch(
-        x=math.ceil(context.segmentCount / 64),
-        inputs=[
-            rasterizer.mSegmentCountBuffer
-        ],
-        outputs=output,
-        shader=ShaderDebugCountSegmentSetup
-    )
+        cmd.dispatch(
+            x=math.ceil(context.segmentCount / 64),
+            inputs=[
+                rasterizer.mSegmentCountBuffer
+            ],
+            outputs=self.mFrustumCountOutput,
+            shader=ShaderDebugCountSegmentSetup
+        )
 
-    gpu.schedule(cmd)
+        # Read back and report the result.
+        download = gpu.ResourceDownloadRequest(self.mFrustumCountOutput)
+        download.resolve()
+        result = np.frombuffer(download.data_as_bytearray(), dtype='i')
 
-    # Read back and report the result.
-    download = gpu.ResourceDownloadRequest(output)
-    download.resolve()
-    result = np.frombuffer(download.data_as_bytearray(), dtype='i')
+        return Stats(
+            context.segmentCount, result[0]
+        )
 
-    return Stats(
-        context.segmentCount, result[0]
-    )
+    @staticmethod
+    def SegmentsPerTile(cmd, outputTarget, w, h, rasterizer: StrandRasterizer):
+        cmd.begin_marker("DebugSegmentsPerTile")
 
+        groupDimX = math.ceil(w / rasterizer.CoarseTileSize)
+        groupDimY = math.ceil(h / rasterizer.CoarseTileSize)
 
-def SegmentsPerTile(cmd, outputTarget, w, h, rasterizer: StrandRasterizer):
-    cmd.begin_marker("DebugSegmentsPerTile")
+        cmd.dispatch(
+            shader=ShaderDebugSegmentsPerTile,
 
-    groupDimX = math.ceil(w / rasterizer.CoarseTileSize)
-    groupDimY = math.ceil(h / rasterizer.CoarseTileSize)
+            constants=[
+                groupDimX,
+                groupDimY
+            ],
 
-    cmd.dispatch(
-        shader=ShaderDebugSegmentsPerTile,
+            inputs=[
+                TextureFont,
+                rasterizer.mCoarseTileSegmentCount
+            ],
 
-        constants=[
-            groupDimX,
-            groupDimY
-        ],
+            outputs=outputTarget,
 
-        inputs=[
-            TextureFont,
-            rasterizer.mCoarseTileSegmentCount
-        ],
+            samplers=SamplerFont,
 
-        outputs=outputTarget,
+            x=math.ceil(w / 16),
+            y=math.ceil(h / 16),
+            z=1
+        )
 
-        samplers=SamplerFont,
-
-        x=math.ceil(w / 16),
-        y=math.ceil(h / 16),
-        z=1
-    )
-
-    cmd.end_marker()
+        cmd.end_marker()

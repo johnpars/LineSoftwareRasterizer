@@ -2,6 +2,7 @@ import time
 
 import coalpy.gpu as gpu
 import os
+import time
 
 from src import Utility
 from src import Editor
@@ -18,7 +19,7 @@ deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
 # strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("single_hair")
+strands = StrandFactory.BuildFromAsset("long_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
@@ -26,6 +27,9 @@ deviceMemory.BindStrandPositionData(strands.particlePositions)
 
 # Create the rasterizer, allocating internal resources.
 rasterizer = StrandRasterizer.StrandRasterizer(initialWidth, initialHeight)
+
+# Create the debugger
+debug = Debug.Debug()
 
 editor = Editor.Editor(deviceMemory, strands)
 
@@ -64,7 +68,7 @@ def OnRender(render_args: gpu.RenderArgs):
     # Invoke the hair strand rasterizer.
     rasterizer.Go(context)
 
-    rasterizer.RasterBruteForce(context)
+    # rasterizer.RasterBruteForce(context)
 
     # Debug view the results of the coarse rasterization pass.
     # Debug.SegmentsPerTile(
@@ -75,7 +79,8 @@ def OnRender(render_args: gpu.RenderArgs):
     # )
 
     # Crunch some numbers about the rasterizer for this frame.
-    stats = Debug.ComputeStats(
+    stats = debug.ComputeStats(
+        cmd,
         rasterizer,
         context
     )
@@ -90,3 +95,5 @@ def OnRender(render_args: gpu.RenderArgs):
 window = gpu.Window("StrandRasterizer", initialWidth, initialHeight, OnRender)
 
 gpu.run()
+
+time.sleep(100)
