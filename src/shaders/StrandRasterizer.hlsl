@@ -303,7 +303,7 @@ void BruteForce(uint3 dispatchThreadID : SV_DispatchThreadID)
          float d = ComputeSegmentCoverageAndBarycentericCoordinate(UVh, p0.xy, p1.xy, coord);
 
          // Compute the segment coverage provided by the segment distance.
-         float coverage = 1 - smoothstep(0.0, 0.001, d);
+         float coverage = 1 - smoothstep(0.0, 0.002, d);
 
          float2 coords = float2(
             coord,

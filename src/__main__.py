@@ -18,7 +18,7 @@ deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
 # strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("cube_hair")
+strands = StrandFactory.BuildFromAsset("single_hair")
 
 # Layout the initial memory and bind the position data
 deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
@@ -64,7 +64,7 @@ def OnRender(render_args: gpu.RenderArgs):
     # Invoke the hair strand rasterizer.
     rasterizer.Go(context)
 
-    # rasterizer.RasterBruteForce(context)
+    rasterizer.RasterBruteForce(context)
 
     # Debug view the results of the coarse rasterization pass.
     # Debug.SegmentsPerTile(
@@ -74,7 +74,13 @@ def OnRender(render_args: gpu.RenderArgs):
     #     rasterizer
     # )
 
-    editor.render_ui(render_args.imgui)
+    # Crunch some numbers about the rasterizer for this frame.
+    stats = Debug.ComputeStats(
+        rasterizer,
+        context
+    )
+
+    editor.Render(stats, render_args.imgui)
 
     # Schedule the work.
     gpu.schedule(cmd)

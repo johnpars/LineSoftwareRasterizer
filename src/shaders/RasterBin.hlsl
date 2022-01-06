@@ -66,6 +66,7 @@ uint GroupPrefixSum(uint laneID, uint x)
     }
     GroupMemoryBarrierWithGroupSync();
 
+    // NOTE: Might be faster to compute the prefix sum at the beginning and then write the last lane's result as the wave sum.
     return g_RingBufferPrefixScratch[waveID] + WavePrefixSum(x);
 }
 
@@ -117,9 +118,13 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID,
                 }
 
                 // TODO: If all have work, just do a fast path that has 1-1 mapping of batch -> ring buffer.
-
                 // See if it brings any additional perf to the binning.
+
+                // Compute the exclusive prefix sum of the segment number in the batch. Use it to determine an index
                 uint ringBufferIndex = GroupPrefixSum(groupIndex, num);
+
+                // For tomorrow, take in an input buffer that is halfway clipped on the screen. Then run the prefix sum and write
+                // to an output buffer the segment indices that passed the clipping.
 
                 // Record the segment to the ring buffer.
                 if (num)

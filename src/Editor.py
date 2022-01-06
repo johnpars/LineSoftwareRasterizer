@@ -10,6 +10,7 @@ from src import StrandDeviceMemory
 from src import Camera as c
 from src import Vector
 from src import Utility
+from src import Debug
 
 class Editor:
 
@@ -47,6 +48,7 @@ class Editor:
         # ui panels states
         self.m_camera_panel = False
         self.m_strand_panel = False
+        self.m_stats_panel = True
 
     @property
     def camera(self):
@@ -99,6 +101,7 @@ class Editor:
             if (imgui.begin_menu("Tools")):
                 self.m_camera_panel = True if imgui.menu_item(label="Camera") else self.m_camera_panel
                 self.m_strand_panel = True if imgui.menu_item(label="Strand Generation") else self.m_strand_panel
+                self.m_stats_panel = True if imgui.menu_item(label="Rasterizer Stats") else self.m_stats_panel
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
@@ -144,6 +147,19 @@ class Editor:
 
         imgui.end()
 
+
+    def RenderStatsBar(self, imgui: g.ImguiBuilder, stats: Debug.Stats):
+        if not self.m_stats_panel:
+            return
+
+        self.m_stats_panel = imgui.begin("Rasterizer Stats", self.m_stats_panel)
+
+        imgui.text("Total Segments:               " + str(stats.segmentCount))
+        imgui.text("Frustum Culled (Pass / Fail): {} / {}".format(stats.segmentCountPassedFrustumCull, stats.segmentCount - stats.segmentCountPassedFrustumCull))
+
+        imgui.end()
+
+
     def RebuildStrands(self):
         # Need to manually round this due to lack of integer imgui bindings
         self.m_generation_settings.strandCount = int(round(self.m_generation_settings.strandCount))
@@ -160,8 +176,9 @@ class Editor:
         self.m_device_memory.BindStrandPositionData(self.m_strands.particlePositions)
 
 
-    def render_ui(self, imgui: g.ImguiBuilder):
+    def Render(self, stats: Debug.Stats, imgui: g.ImguiBuilder):
         self.RenderMainMenuBar(imgui)
         self.RenderCameraBar(imgui)
         self.RenderStrandBar(imgui)
+        self.RenderStatsBar(imgui, stats)
 

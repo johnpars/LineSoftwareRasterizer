@@ -1,5 +1,26 @@
 #include "Utility.hlsl"
 
+// Count Segment Setup
+// ----------------------------------------------------------------
+StructuredBuffer<uint> _SegmentCountBuffer : register(t0);
+RWBuffer<uint>         _FrustumCulledCount : register(u0);
+
+[numthreads(64, 1, 1)]
+void CountSegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID,
+                       uint groupIndex : SV_GroupIndex)
+{
+    uint count = _SegmentCountBuffer[dispatchThreadID.x];
+    GroupMemoryBarrierWithGroupSync();
+
+    uint waveCount = WaveActiveSum(count);
+
+    if (groupIndex == 0)
+        InterlockedAdd(_FrustumCulledCount[0], waveCount);
+}
+
+// Segments Per Tile
+// ----------------------------------------------------------------
+
 cbuffer SegmentsPerTileConstants : register(b0)
 {
     uint2 GroupDim;
