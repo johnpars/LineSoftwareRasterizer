@@ -1,8 +1,4 @@
-import time
-
 import coalpy.gpu as gpu
-import os
-import time
 
 from src import Utility
 from src import Editor
@@ -11,42 +7,42 @@ from src import StrandFactory
 from src import StrandDeviceMemory
 from src import StrandRasterizer
 
-initialWidth  = 1280
-initialHeight = 720
+initial_width  = 1280
+initial_height = 720
 
 # Allocate a chunk of device memory resources
 deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
-# strands = StrandFactory.BuildProcedural()
-strands = StrandFactory.BuildFromAsset("long_hair")
+strands = StrandFactory.build_from_asset("cube_hair")
 
 # Layout the initial memory and bind the position data
-deviceMemory.Layout(strands.strandCount, strands.strandParticleCount)
-deviceMemory.BindStrandPositionData(strands.particlePositions)
+deviceMemory.layout(strands.strand_count, strands.strand_particle_count)
+deviceMemory.bind_strand_position_data(strands.particle_positions)
 
 # Create the rasterizer, allocating internal resources.
-rasterizer = StrandRasterizer.StrandRasterizer(initialWidth, initialHeight)
+rasterizer = StrandRasterizer.StrandRasterizer(initial_width, initial_height)
 
 # Create the debugger
 debug = Debug.Debug()
 
 editor = Editor.Editor(deviceMemory, strands)
 
-def OnRender(render_args: gpu.RenderArgs):
+
+def on_render(render_args: gpu.RenderArgs):
     output_target = render_args.window.display_texture
 
     w = render_args.width
     h = render_args.height
 
     # Process user input and interface
-    editor.UpdateCamera(w, h, render_args.delta_time, render_args.window)
+    editor.update_camera(w, h, render_args.delta_time, render_args.window)
 
     cmd = gpu.CommandList()
 
     # Clear the color target.
     cmd.begin_marker("ClearColorTarget")
-    Utility.ClearTarget(
+    Utility.clear_target(
         cmd,
         [0.0, 0.0, 0.0, 0.0],
         output_target, w, h
@@ -59,14 +55,14 @@ def OnRender(render_args: gpu.RenderArgs):
         editor.camera.view_matrix,
         editor.camera.proj_matrix,
         deviceMemory,
-        editor.m_strands.strandCount,
-        editor.m_strands.strandCount * (editor.m_strands.strandParticleCount - 1),
-        editor.m_strands.strandParticleCount,
+        editor.strands.strand_count,
+        editor.strands.strand_count * (editor.strands.strand_particle_count - 1),
+        editor.strands.strand_particle_count,
         output_target
     )
 
     # Invoke the hair strand rasterizer.
-    rasterizer.Go(context)
+    rasterizer.go(context)
 
     # rasterizer.RasterBruteForce(context)
 
@@ -79,21 +75,19 @@ def OnRender(render_args: gpu.RenderArgs):
     # )
 
     # Crunch some numbers about the rasterizer for this frame.
-    stats = debug.ComputeStats(
+    stats = debug.compute_stats(
         cmd,
         rasterizer,
         context
     )
 
-    editor.Render(stats, render_args.imgui)
+    editor.render(stats, render_args.imgui)
 
     # Schedule the work.
     gpu.schedule(cmd)
 
 
 # Invoke the window creation and register our render loop.
-window = gpu.Window("StrandRasterizer", initialWidth, initialHeight, OnRender)
+window = gpu.Window("StrandRasterizer", initial_width, initial_height, on_render)
 
 gpu.run()
-
-time.sleep(100)

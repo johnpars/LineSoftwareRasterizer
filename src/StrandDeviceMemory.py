@@ -1,92 +1,84 @@
-import array
-import ctypes.wintypes
 import math
-import sys
-
 import coalpy.gpu as gpu
 import numpy as np
 
+from src import Budgets
 from src import Utility
+
 
 class StrandDeviceMemory:
 
-    # VBO
-    kVertexPoolByteSize   = 32 * 1024 * 1024                # 32mb
-    kVertexFormatByteSize = 4 + 4                           # Vertex ID + Vertex UV
-
-    # IBO
-    kIndexPoolByteSize    = 32 * 1024 * 1024                # 16mb
-    kIndexFormatByteSize  = 4                               # 32 bit
-
-    # Strand Positions
-    kStrandPositionPoolByteSize   = 32 * 1024 * 1024        # 32mb
-    kStrandPositionFormatByteSize = 4 * 3                   # Position
-
-
     def __init__(self):
 
-        self.mVertexBuffer = gpu.Buffer(
-            name = "GlobalVertexBuffer",
-            type = gpu.BufferType.Structured,
-            stride = StrandDeviceMemory.kVertexFormatByteSize,
-            element_count = math.ceil(StrandDeviceMemory.kVertexPoolByteSize / StrandDeviceMemory.kVertexFormatByteSize)
+        self.vertex_buffer = gpu.Buffer(
+            name="GlobalVertexBuffer",
+            type=gpu.BufferType.Structured,
+            stride=Budgets.BYTE_SIZE_VERTEX_FORMAT,
+            element_count=math.ceil(Budgets.BYTE_SIZE_VERTEX_POOL / Budgets.BYTE_SIZE_VERTEX_FORMAT)
         )
 
-        self.mIndexBuffer = gpu.Buffer(
-            name = "GlobalIndexBuffer",
-            type = gpu.BufferType.Standard,
-            format = gpu.Format.R32_UINT,
-            element_count = math.ceil(StrandDeviceMemory.kIndexPoolByteSize / StrandDeviceMemory.kIndexFormatByteSize)
+        self.index_buffer = gpu.Buffer(
+            name="GlobalIndexBuffer",
+            type=gpu.BufferType.Standard,
+            format=gpu.Format.R32_UINT,
+            element_count=math.ceil(Budgets.BYTE_SIZE_INDEX_POOL / Budgets.BYTE_SIZE_INDEX_FORMAT)
         )
 
-        self.mStrandDataBuffer = gpu.Buffer(
-            name = "GlobalStrandPositionBuffer",
-            type = gpu.BufferType.Structured,
-            stride = StrandDeviceMemory.kStrandPositionFormatByteSize,
-            element_count = math.ceil(StrandDeviceMemory.kStrandPositionPoolByteSize / StrandDeviceMemory.kStrandPositionFormatByteSize)
+        self.strand_buffer = gpu.Buffer(
+            name="GlobalStrandPositionBuffer",
+            type=gpu.BufferType.Structured,
+            stride=Budgets.BYTE_SIZE_STRAND_DATA_FORMAT,
+            element_count=math.ceil(
+                Budgets.BYTE_SIZE_STRAND_DATA_POOL / Budgets.BYTE_SIZE_STRAND_DATA_FORMAT)
         )
 
+    def layout(self, strand_count, strand_particle_count):
 
-    def Layout(self, strandCount, strandParticleCount):
-
-        perLineVertices = strandParticleCount
+        perLineVertices = strand_particle_count
         perLineSegments = perLineVertices - 1
-        perLineIndices  = perLineSegments * 2
+        perLineIndices = perLineSegments * 2
 
-        vertexID = np.zeros(strandCount * perLineVertices, dtype='f'); vertexIDIdx = 0
-        vertexUV = np.zeros(strandCount * perLineVertices, dtype='f'); vertexUVIdx = 0
-        indices  = np.zeros(strandCount * perLineIndices,  dtype='i'); indicesIdx  = 0
+        vertexID = np.zeros(strand_count * perLineVertices, dtype='f')
+        vertexIDIdx = 0
+        vertexUV = np.zeros(strand_count * perLineVertices, dtype='f')
+        vertexUVIdx = 0
+        indices = np.zeros(strand_count * perLineIndices, dtype='i')
+        indicesIdx = 0
 
         unormU0 = int(65535 * 0.5)
         unormVk = int(65535 / perLineSegments)
 
         # Vertex ID
         i, k = 0, 0
-        while i != strandCount:
+        while i != strand_count:
 
-            begin, stride, end = Utility.GetStrandIterator(Utility.MemoryLayout.Interleaved,
-                                                           i, strandCount, strandParticleCount)
+            begin, stride, end = Utility.get_strand_iterator(Utility.MemoryLayout.Interleaved,
+                                                             i, strand_count, strand_particle_count)
 
             j = begin
             while (j < end):
                 vertexID[vertexIDIdx] = k
 
-                k += 1; vertexIDIdx += 1; j += stride
+                k += 1
+                vertexIDIdx += 1
+                j += stride
 
             i += 1
 
         # Vertex UV
         i = 0
-        while i != strandCount:
+        while i != strand_count:
 
-            begin, stride, end = Utility.GetStrandIterator(Utility.MemoryLayout.Interleaved,
-                                                           i, strandCount, strandParticleCount)
+            begin, stride, end = Utility.get_strand_iterator(Utility.MemoryLayout.Interleaved,
+                                                             i, strand_count, strand_particle_count)
 
             j, k = begin, 0
-            while (j < end):
+            while j < end:
                 unormV = unormVk * k
-                vertexUV[vertexUVIdx] = ((unormV << 16) | unormU0) / 0xffffffff # Lazy integer normalization
-                k += 1; vertexUVIdx += 1; j += stride
+                vertexUV[vertexUVIdx] = ((unormV << 16) | unormU0) / 0xffffffff  # Lazy integer normalization
+                k += 1
+                vertexUVIdx += 1
+                j += stride
 
             i += 1
 
@@ -96,33 +88,37 @@ class StrandDeviceMemory:
 
         # Indices
         i, s = 0, 0
-        while i != strandCount:
+        while i != strand_count:
             j = 0
             while j != perLineSegments:
-                indices[indicesIdx] = s + 0; indicesIdx += 1
-                indices[indicesIdx] = s + 1; indicesIdx += 1
-                j += 1; s += 1
-            i += 1; s += 1
+                indices[indicesIdx] = s + 0
+                indicesIdx += 1
+                indices[indicesIdx] = s + 1
+                indicesIdx += 1
+                j += 1
+                s += 1
+            i += 1
+            s += 1
 
         # Upload
 
         cmd = gpu.CommandList()
 
         cmd.upload_resource(
-            source = vertices,
-            destination = self.mVertexBuffer
+            source=vertices,
+            destination=self.vertex_buffer
         )
 
         cmd.upload_resource(
-            source = indices,
-            destination = self.mIndexBuffer
+            source=indices,
+            destination=self.index_buffer
         )
 
         gpu.schedule(cmd)
 
         return
 
-    def BindStrandPositionData(self, positions : np.ndarray):
+    def bind_strand_position_data(self, positions: np.ndarray):
 
         # Dumb flattening of the object list
         positionsGPU = np.zeros(positions.size * 3, 'f')
@@ -132,13 +128,14 @@ class StrandDeviceMemory:
             positionsGPU[i + 0] = positions[j].x
             positionsGPU[i + 1] = positions[j].y
             positionsGPU[i + 2] = positions[j].z
-            i += 3; j += 1
+            i += 3
+            j += 1
 
         cmd = gpu.CommandList()
 
         cmd.upload_resource(
-            source = positionsGPU,
-            destination = self.mStrandDataBuffer
+            source=positionsGPU,
+            destination=self.strand_buffer
         )
 
         gpu.schedule(cmd)

@@ -9,8 +9,8 @@ from src import Utility
 TextureFont = gpu.Texture(file="DebugFont.jpg")
 SamplerFont = gpu.Sampler(filter_type=gpu.FilterType.Linear)
 
-ShaderDebugCountSegmentSetup = gpu.Shader(file="Debug.hlsl", name="CountSegmentSetup", main_function="CountSegmentSetup")
-ShaderDebugSegmentsPerTile = gpu.Shader(file="Debug.hlsl", name="SegmentsPerTile", main_function="SegmentsPerTile")
+s_frustum_segment_output = gpu.Shader(file="Debug.hlsl", name="CountSegmentSetup", main_function="CountSegmentSetup")
+s_segments_per_tile      = gpu.Shader(file="Debug.hlsl", name="SegmentsPerTile",   main_function="SegmentsPerTile")
 
 
 @dataclass
@@ -18,62 +18,62 @@ class Stats:
     segmentCount: int
     segmentCountPassedFrustumCull: int
 
+
 class Debug:
     def __init__(self):
-        self.mFrustumCountOutput = gpu.Buffer(
+        self.b_frustum_segment_output = gpu.Buffer(
             type=gpu.BufferType.Standard,
             format=gpu.Format.R32_UINT,
             element_count=1
         )
 
-    def ComputeStats(self, cmd, rasterizer, context) -> Stats:
-
-        Utility.ClearBuffer(
+    def compute_stats(self, cmd, rasterizer, context) -> Stats:
+        Utility.clear_buffer(
             cmd,
             0,
             1,
-            self.mFrustumCountOutput
+            self.b_frustum_segment_output
         )
 
         cmd.dispatch(
-            x=math.ceil(context.segmentCount / 64),
+            x=math.ceil(context.segment_count / 64),
             inputs=[
-                rasterizer.mSegmentCountBuffer
+                rasterizer.b_segment_count
             ],
-            outputs=self.mFrustumCountOutput,
-            shader=ShaderDebugCountSegmentSetup
+            outputs=self.b_frustum_segment_output,
+            shader=s_frustum_segment_output
         )
 
         # Read back and report the result.
-        download = gpu.ResourceDownloadRequest(self.mFrustumCountOutput)
+        download = gpu.ResourceDownloadRequest(self.b_frustum_segment_output)
         download.resolve()
         result = np.frombuffer(download.data_as_bytearray(), dtype='i')
 
         return Stats(
-            context.segmentCount, result[0]
+            context.segment_count, result[0]
         )
 
     @staticmethod
-    def SegmentsPerTile(cmd, outputTarget, w, h, rasterizer: StrandRasterizer):
+    def segments_per_tile(cmd, output_target, w, h, rasterizer: StrandRasterizer):
         cmd.begin_marker("DebugSegmentsPerTile")
 
-        groupDimX = math.ceil(w / rasterizer.CoarseTileSize)
-        groupDimY = math.ceil(h / rasterizer.CoarseTileSize)
+        group_dim_x = math.ceil(w / rasterizer.TILE_SIZE_COARSE)
+        group_dim_y = math.ceil(h / rasterizer.TILE_SIZE_COARSE)
 
         cmd.dispatch(
-            shader=ShaderDebugSegmentsPerTile,
+            shader=s_segments_per_tile,
 
             constants=[
-                groupDimX,
-                groupDimY
+                group_dim_x,
+                group_dim_y
             ],
 
             inputs=[
                 TextureFont,
-                rasterizer.mCoarseTileSegmentCount
+                rasterizer.b_coarse_tile_count
             ],
 
-            outputs=outputTarget,
+            outputs=output_target,
 
             samplers=SamplerFont,
 

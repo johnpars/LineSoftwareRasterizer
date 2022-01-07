@@ -1,12 +1,11 @@
-import math
 import coalpy.gpu as gpu
 import random
 import math
 
 from dataclasses import dataclass
 
-ShaderClearTarget = gpu.Shader(file="ClearTarget.hlsl", name="ClearTarget", main_function="ClearTarget")
-ShaderClearBuffer = gpu.Shader(file="ClearTarget.hlsl", name="ClearBuffer", main_function="ClearBuffer")
+s_clear_target = gpu.Shader(file="ClearTarget.hlsl", name="ClearTarget", main_function="ClearTarget")
+s_clear_buffer = gpu.Shader(file="ClearTarget.hlsl", name="ClearBuffer", main_function="ClearBuffer")
 
 
 class MemoryLayout:
@@ -27,19 +26,7 @@ class Vector3:
     z: float
 
 
-#    def __rmul__(self, scalar):
-#        x = self.x + scalar
-#        y = self.y + scalar
-#        z = self.z + scalar
-#        return Vector3(x, y, z)
-#
-#    def __iadd__(self, other):
-#        x = self.x + other.x
-#        y = self.y + other.y
-#        z = self.z + other.z
-#        return Vector3(x, y, z)
-
-def RandomSphereDirection():
+def random_sphere_direction():
     rnd = Vector2(
         random.random(),
         random.random()
@@ -52,11 +39,11 @@ def RandomSphereDirection():
     return Vector3(c * r, s * r, z)
 
 
-def SquareMagnitude(v: Vector3) -> float:
+def square_magnitude(v: Vector3) -> float:
     return v.x * v.x + v.y * v.y + v.z * v.z
 
 
-def Cross(a: Vector3, b: Vector3) -> Vector3:
+def cross(a: Vector3, b: Vector3) -> Vector3:
     return Vector3(
         a.y * b.z - a.z * b.y,
         a.z * b.x - a.x * b.z,
@@ -64,7 +51,7 @@ def Cross(a: Vector3, b: Vector3) -> Vector3:
     )
 
 
-def Dot(a: Vector3, b: Vector3) -> float:
+def dot(a: Vector3, b: Vector3) -> float:
     return a.x * b.x + a.y * b.y + a.z * b.z
 
 
@@ -78,9 +65,9 @@ def Normalize(v: Vector3) -> Vector3:
     )
 
 
-def ProjectOnPlane(v: Vector3, n: Vector3) -> Vector3:
-    d = Dot(v, n)
-    m = Dot(n, n)
+def project_on_plane(v: Vector3, n: Vector3) -> Vector3:
+    d = dot(v, n)
+    m = dot(n, n)
     return Vector3(
         v.x - n.x * d / m,
         v.y - n.y * d / m,
@@ -88,19 +75,19 @@ def ProjectOnPlane(v: Vector3, n: Vector3) -> Vector3:
     )
 
 
-def NextVectorInPlane(n) -> Vector3:
+def next_vector_in_plane(n) -> Vector3:
     while True:
-        r = ProjectOnPlane(RandomSphereDirection(), n)
-        if SquareMagnitude(r) > 1e-5:
+        r = project_on_plane(random_sphere_direction(), n)
+        if square_magnitude(r) > 1e-5:
             break
     return r
 
 
-def Lerp(a: float, b: float, t: float) -> float:
+def lerp(a: float, b: float, t: float) -> float:
     return (t * a) + ((1 - t) * b)
 
 
-def GetStrandIterator(memoryLayout, strandIndex, strandCount, strandParticleCount):
+def get_strand_iterator(memoryLayout, strandIndex, strandCount, strandParticleCount):
     if memoryLayout is MemoryLayout.Sequential:
         strandParticleBegin = strandIndex * strandParticleCount
         strandParticleStride = 1
@@ -113,13 +100,13 @@ def GetStrandIterator(memoryLayout, strandIndex, strandCount, strandParticleCoun
     return (strandParticleBegin, strandParticleStride, strandParticleEnd)
 
 
-def Clamp(x, minimum, maximum):
+def clamp(x, minimum, maximum):
     return max(minimum, min(x, maximum))
 
 
-def ClearTarget(cmd, color, target, w, h):
+def clear_target(cmd, color, target, w, h):
     cmd.dispatch(
-        shader=ShaderClearTarget,
+        shader=s_clear_target,
         constants=color,
         x=math.ceil(w / 8),
         y=math.ceil(h / 8),
@@ -128,9 +115,9 @@ def ClearTarget(cmd, color, target, w, h):
     )
 
 
-def ClearBuffer(cmd, value, count, target):
+def clear_buffer(cmd, value, count, target):
     cmd.dispatch(
-        shader=ShaderClearBuffer,
+        shader=s_clear_buffer,
         constants=[
             int(value),
             int(count)
