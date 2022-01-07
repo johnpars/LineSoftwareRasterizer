@@ -13,7 +13,6 @@ s_segment_setup = gpu.Shader(file="SegmentSetup.hlsl",     name="SegmentSetup", 
 s_raster_bin    = gpu.Shader(file="RasterBin.hlsl",        name="RasterBin",    main_function="RasterBin")
 s_raster_coarse = gpu.Shader(file="RasterCoarse.hlsl",     name="RasterCoarse", main_function="RasterCoarse")
 s_raster_fine   = gpu.Shader(file="RasterFine.hlsl",       name="RasterFine",   main_function="RasterFine")
-s_raster_brute  = gpu.Shader(file="StrandRasterizer.hlsl", name="BruteForce",   main_function="BruteForce")
 #############################################################################################################
 
 @dataclass
@@ -321,49 +320,6 @@ class StrandRasterizer:
             ],
 
             x=math.ceil(context.segment_count / 1024)
-        )
-
-        context.cmd.end_marker()
-
-    @staticmethod
-    def raster_brute_force(context):
-        context.cmd.begin_marker("BruteForcePass")
-
-        context.cmd.dispatch(
-            shader=s_raster_brute,
-
-            constants=np.array([
-                # _MatrixV
-                context.matrix_v[0, 0:4],
-                context.matrix_v[1, 0:4],
-                context.matrix_v[2, 0:4],
-                context.matrix_v[3, 0:4],
-
-                # _MatrixP
-                context.matrix_p[0, 0:4],
-                context.matrix_p[1, 0:4],
-                context.matrix_p[2, 0:4],
-                context.matrix_p[3, 0:4],
-
-                # _ScreenParams
-                [context.w, context.h, 1.0 / context.w, 1.0 / context.h],
-
-                # _Params0
-                [context.strand_count, context.strand_particle_count, 0, 0],
-            ], dtype='f'),
-
-            inputs=[
-                context.strands.vertex_buffer,
-                context.strands.index_buffer,
-                context.strands.strand_buffer
-            ],
-
-            outputs=[
-                context.target
-            ],
-
-            x=math.ceil(context.w / 8),
-            y=math.ceil(context.h / 8),
         )
 
         context.cmd.end_marker()

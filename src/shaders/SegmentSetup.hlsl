@@ -1,4 +1,4 @@
-#include "Common.hlsl"
+#include "RasterCommon.hlsl"
 #include "Vert.hlsl"
 
 // Inputs

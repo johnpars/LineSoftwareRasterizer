@@ -1,4 +1,4 @@
-#include "Common.hlsl"
+#include "RasterCommon.hlsl"
 
 // Kernel
 [numthreads(8, 8, 1)]
