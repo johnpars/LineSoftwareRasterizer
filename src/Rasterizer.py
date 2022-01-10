@@ -50,7 +50,6 @@ class Rasterizer:
         self.b_segment_header = None
         self.b_segment_data   = None
         self.b_coarse_tile    = None
-        self.b_ring           = None
         self.create_resource_buffers()
 
         # Resolution Dependent
@@ -182,34 +181,23 @@ class Rasterizer:
         )
 
     def clear_buffers(self, context):
-        context.cmd.begin_marker("ClearCoarseBuffers")
-
-        # Tile segment counter buffer
         Utility.clear_buffer(
             context.cmd,
             0,
             math.ceil(context.w / Budgets.TILE_SIZE_COARSE) *
             math.ceil(context.h / Budgets.TILE_SIZE_COARSE),
-            self.b_coarse_tile_count
+            self.b_coarse_tile_count,
+            Utility.ClearMode.UINT
         )
 
-        # Tile head pointer buffer
         Utility.clear_buffer(
             context.cmd,
             -1,  # 0xFFFFFFFF
             math.ceil(context.w / Budgets.TILE_SIZE_COARSE) *
             math.ceil(context.h / Budgets.TILE_SIZE_COARSE),
-            self.b_coarse_tile_head
+            self.b_coarse_tile_head,
+            Utility.ClearMode.RAW
         )
-
-        Utility.clear_buffer(
-            context.cmd,
-            0,
-            Budgets.MAX_SEGMENTS,
-            self.b_ring
-        )
-
-        context.cmd.end_marker()
 
     def vertex_setup(self, context):
         context.cmd.begin_marker("VertexSetupPass")
@@ -280,10 +268,6 @@ class Rasterizer:
                 self.b_segment_output,
             ],
 
-            outputs=[
-                self.b_ring
-            ],
-
             x=16,
         )
 
@@ -318,10 +302,6 @@ class Rasterizer:
 
             inputs=[
                 self.b_segment_output,
-            ],
-
-            outputs=[
-                self.b_counter
             ],
 
             x=math.ceil(context.segment_count / 1024)

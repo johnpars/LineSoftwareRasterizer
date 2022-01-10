@@ -30,6 +30,7 @@ class RasterizerBrute(Rasterizer.Rasterizer):
         self.b_fragment_counter = gpu.Buffer(
             name="FragmentCounterBuffer",
             type=gpu.BufferType.Standard,
+            format=gpu.Format.R32_UINT,
             element_count=1
         )
 
@@ -41,7 +42,6 @@ class RasterizerBrute(Rasterizer.Rasterizer):
         )
 
     def update_resolution_dependent_buffers(self, w, h):
-
         if w <= self.mW and h <= self.mH:
             return
 
@@ -73,21 +73,27 @@ class RasterizerBrute(Rasterizer.Rasterizer):
         )
 
     def clear_buffers(self, context):
+        context.cmd.begin_marker("Clear Buffers")
+
         super().clear_buffers(context)
 
         Utility.clear_buffer(
             context.cmd,
             0,
             1,
-            self.b_fragment_counter
+            self.b_fragment_counter,
+            Utility.ClearMode.UINT
         )
 
         Utility.clear_buffer(
             context.cmd,
-            -1,  # 0xFFFFFFFF
+            -1,
             context.w * context.h,
-            self.b_head_pointer
+            self.b_head_pointer,
+            Utility.ClearMode.RAW
         )
+
+        context.cmd.end_marker()
 
     def raster_coverage(self, context):
 
@@ -152,7 +158,7 @@ class RasterizerBrute(Rasterizer.Rasterizer):
         # 2) Coverage pass that pushes all contributing fragments into a linked list.
         self.raster_coverage(context)
 
-        # 3) Resolve pass that walks down the fragment linked list for each pixel and solves transmittance function.
+        # 3) Resolve pass that walks down the per-pixel fragment linked list and solves transmittance function.
         self.raster_resolve(context)
 
         context.cmd.end_marker()

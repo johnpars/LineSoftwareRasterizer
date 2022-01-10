@@ -25,7 +25,7 @@ RWStructuredBuffer<FragmentData> _FragmentDataBuffer : register(u2);
 
 uint GetFlattenedPixelIndex(uint x, uint y)
 {
-    return x + _ScreenParams.x * y;
+    return (y * _ScreenParams.x) + x;
 }
 
 [numthreads(NUM_LANE_PER_WAVE, 1, 1)]
@@ -95,13 +95,13 @@ void RasterCoverage(uint3 dti : SV_DispatchThreadID)
             InterlockedAdd(_CounterBuffer[0], 1, fragmentCount);
 
             // Exchange the new head pointer.
-            uint next;
-            _HeadPointerBuffer.InterlockedExchange(4 * GetFlattenedPixelIndex(x, y), segmentCount, next);
+            int next;
+            _HeadPointerBuffer.InterlockedExchange(4 * GetFlattenedPixelIndex(x, y), fragmentCount, next);
 
             FragmentData data;
             {
                 data.color = float4(ColorCycle(i, _SegmentCount), coverage);
-                data.depth = z;
+                data.depth = d;
                 data.next  = next;
             }
             _FragmentDataBuffer[fragmentCount] = data;

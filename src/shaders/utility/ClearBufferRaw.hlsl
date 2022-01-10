@@ -4,7 +4,7 @@ cbuffer ClearBufferConstants : register(b0)
     uint Count;
 }
 
-RWBuffer<uint> _OutputBuffer : register(u0);
+RWByteAddressBuffer _OutputBuffer : register(u0);
 
 [numthreads(64, 1, 1)]
 void ClearBuffer(uint2 dispatchThreadID : SV_DispatchThreadID)
@@ -14,5 +14,5 @@ void ClearBuffer(uint2 dispatchThreadID : SV_DispatchThreadID)
     if (i >= Count)
         return;
 
-    _OutputBuffer[i] = Value;
+    _OutputBuffer.Store(4 * i, Value);
 }

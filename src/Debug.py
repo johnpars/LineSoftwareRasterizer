@@ -32,7 +32,8 @@ class Debug:
             cmd,
             0,
             1,
-            self.b_frustum_segment_output
+            self.b_frustum_segment_output,
+            Utility.ClearMode.UINT
         )
 
         cmd.dispatch(
