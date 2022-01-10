@@ -1,5 +1,4 @@
 #include "RasterCommon.hlsl"
-#include "Vert.hlsl"
 
 // Inputs
 // ----------------------------------------
@@ -8,14 +7,14 @@ cbuffer ConstantsSetup : register(b0)
     float4 _Params;
 }
 
-// TODO: ByteAddress for faster load and store in SGPR
-StructuredBuffer<VertexInput> _VertexBuffer     : register(t0);
-Buffer<uint>                  _IndexBuffer      : register(t1);
+StructuredBuffer<VertexOutput> _VertexBuffer     : register(t0);
+ByteAddressBuffer              _IndexBuffer      : register(t1);
 
 // Outputs
 // ----------------------------------------
-RWStructuredBuffer<uint>          _SegmentCountBuffer  : register(u0);
+RWByteAddressBuffer               _SegmentCountBuffer  : register(u0);
 RWStructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(u1);
+RWStructuredBuffer<SegmentData>   _SegmentDataBuffer   : register(u2);
 
 // Defines
 // ----------------------------------------
@@ -36,7 +35,10 @@ RWStructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(u1);
 #define MIN_Y -1
 #define MAX_Y +1
 
-#define NUM_WARP 8
+#define NUM_WAVE 8
+
+#define CULL_SEGMENT(i) _SegmentCountBuffer.Store(4 * i, 0)
+#define PASS_SEGMENT(i) _SegmentCountBuffer.Store(4 * i, 1)
 
 // Utility
 //-----------------------------------------
@@ -112,7 +114,7 @@ bool ClipSegmentCohenSutherland(inout float x0, inout float y0, inout float x1, 
 // The mapping is 1-1, so we tag each segment with the amount of processing required.
 // (0 for culled/clipped, 1 for a single segment, >1 for subsegments if tessellated).
 // ----------------------------------------
-[numthreads(NUM_WARP * NUM_THREAD_PER_WARP, 1, 1)]
+[numthreads(NUM_WAVE * NUM_LANE_PER_WAVE, 1, 1)]
 void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
     const uint i = dispatchThreadID.x;
@@ -120,24 +122,12 @@ void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
     if (i >= _SegmentCount)
         return;
 
-    // Prepare the segment record.
-    SegmentRecord record;
-    ZERO_INITIALIZE(SegmentRecord, record);
-
     // Load Indices
-    const uint i0 = _IndexBuffer[i * 2 + 0];
-    const uint i1 = _IndexBuffer[i * 2 + 1];
+    const uint2 segmentIndices = _IndexBuffer.Load2(i * 8);
 
     // Load Vertices
-    const VertexInput i_v0 = _VertexBuffer[i0];
-    const VertexInput i_v1 = _VertexBuffer[i1];
-
-    // Invoke Vertex Shader
-    // TODO: Add a preliminary vertex stage that processes vertex attributes and writes to a vertex buffer.
-    //       Store vertex indices in the segment data which we can read back later in the fine rasterizer for
-    //       arbitrary vertex data interpolation.
-    VertexOutput o_v0 = Vert(i_v0);
-    VertexOutput o_v1 = Vert(i_v1);
+    VertexOutput o_v0 = _VertexBuffer[segmentIndices.x];
+    VertexOutput o_v1 = _VertexBuffer[segmentIndices.y];
 
     float4 v[2] = {
         o_v0.positionCS,
@@ -147,8 +137,7 @@ void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
     // Fast rejection for segments behind the near clipping plane.
     if (0 < v[0].w || 0 < v[1].w)
     {
-        _SegmentCountBuffer[i]  = 0;
-        _SegmentRecordBuffer[i] = record;
+        CULL_SEGMENT(i);
         return;
     }
 
@@ -159,18 +148,24 @@ void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
     // Cohen-Sutherland algorithm to perform line segment clipping in NDC space.
     if(!ClipSegmentCohenSutherland(p0.x, p0.y, p1.x, p1.y))
     {
-        _SegmentCountBuffer[i]  = 0;
-        _SegmentRecordBuffer[i] = record;
+        CULL_SEGMENT(i);
         return;
     }
 
-    // NOTE: This can potentially expand to greater than one if we tessellate the segment.
-    _SegmentCountBuffer[i] = 1;
+    // NOTE: This should potentially expand to greater than one if we tessellate the segment.
+    PASS_SEGMENT(i);
 
-    // Record the segment.
+    SegmentRecord record;
     {
         record.v0 = p0.xy;
         record.v1 = p1.xy;
     }
     _SegmentRecordBuffer[i] = record;
+
+    SegmentData data;
+    {
+        data.vi0 = segmentIndices.x;
+        data.vi1 = segmentIndices.y;
+    }
+    _SegmentDataBuffer[i] = data;
 }

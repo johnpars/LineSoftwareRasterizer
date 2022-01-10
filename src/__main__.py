@@ -1,11 +1,13 @@
 import coalpy.gpu as gpu
+import time
 
 from src import Utility
 from src import Editor
 from src import Debug
 from src import StrandFactory
 from src import StrandDeviceMemory
-from src import StrandRasterizer
+from src import Rasterizer
+from src import RasterizerBrute
 
 initial_width  = 1280
 initial_height = 720
@@ -21,7 +23,7 @@ deviceMemory.layout(strands.strand_count, strands.strand_particle_count)
 deviceMemory.bind_strand_position_data(strands.particle_positions)
 
 # Create the rasterizer, allocating internal resources.
-rasterizer = StrandRasterizer.StrandRasterizer(initial_width, initial_height)
+rasterizer = RasterizerBrute.RasterizerBrute(initial_width, initial_height)
 
 # Create the debugger
 debug = Debug.Debug()
@@ -50,7 +52,7 @@ def on_render(render_args: gpu.RenderArgs):
     cmd.end_marker()
 
     # Create the new frame context.
-    context = StrandRasterizer.Context(
+    context = Rasterizer.Context(
         cmd, w, h,
         editor.camera.view_matrix,
         editor.camera.proj_matrix,

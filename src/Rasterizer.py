@@ -1,4 +1,5 @@
 import math
+import sys
 import numpy as np
 import coalpy.gpu as gpu
 
@@ -8,12 +9,13 @@ from src import Budgets
 from src import StrandDeviceMemory
 
 # Stage Kernels
-#############################################################################################################
-s_segment_setup = gpu.Shader(file="SegmentSetup.hlsl",     name="SegmentSetup", main_function="SegmentSetup")
-s_raster_bin    = gpu.Shader(file="RasterBin.hlsl",        name="RasterBin",    main_function="RasterBin")
-s_raster_coarse = gpu.Shader(file="RasterCoarse.hlsl",     name="RasterCoarse", main_function="RasterCoarse")
-s_raster_fine   = gpu.Shader(file="RasterFine.hlsl",       name="RasterFine",   main_function="RasterFine")
-#############################################################################################################
+#########################################################################################################
+s_vertex_setup  = gpu.Shader(file="VertexSetup.hlsl",  name="VertexSetup",  main_function="VertexSetup")
+s_segment_setup = gpu.Shader(file="SegmentSetup.hlsl", name="SegmentSetup", main_function="SegmentSetup")
+s_raster_bin    = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",    main_function="RasterBin")
+s_raster_coarse = gpu.Shader(file="RasterCoarse.hlsl", name="RasterCoarse", main_function="RasterCoarse")
+s_raster_fine   = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",   main_function="RasterFine")
+#########################################################################################################
 
 @dataclass
 class Context:
@@ -29,7 +31,7 @@ class Context:
     target: gpu.Texture
 
 
-class StrandRasterizer:
+class Rasterizer:
 
     def __init__(self, w, h):
 
@@ -37,16 +39,17 @@ class StrandRasterizer:
         self.mH = 0
 
         # Constant Buffers
-        self.cb_vertex        = None
+        self.cb_vertex_setup  = None
         self.cb_segment_setup = None
         self.cb_raster_bin    = None
         self.create_constant_buffers()
 
         # Resource Buffers
-        self.b_segment_count  = None
+        self.b_vertex_output  = None
+        self.b_segment_output = None
         self.b_segment_header = None
+        self.b_segment_data   = None
         self.b_coarse_tile    = None
-        self.b_counter        = None
         self.b_ring           = None
         self.create_resource_buffers()
 
@@ -55,13 +58,17 @@ class StrandRasterizer:
         self.b_coarse_tile_head  = None
         self.update_resolution_dependent_buffers(w, h)
 
-        return
-
     def create_resource_buffers(self):
-        self.b_segment_count = gpu.Buffer(
+        self.b_vertex_output = gpu.Buffer(
+            name="VertexOutputBuffer",
+            type=gpu.BufferType.Structured,
+            stride=Budgets.BYTE_SIZE_VERTEX_OUTPUT_FORMAT,
+            element_count=math.ceil(Budgets.BYTE_SIZE_VERTEX_OUTPUT_POOL / Budgets.BYTE_SIZE_VERTEX_OUTPUT_FORMAT)
+        )
+
+        self.b_segment_output = gpu.Buffer(
             name="SegmentCountBuffer",
-            type=gpu.BufferType.Standard,
-            format=gpu.Format.R32_UINT,
+            type=gpu.BufferType.Raw,
             element_count=Budgets.MAX_SEGMENTS
         )
 
@@ -72,31 +79,16 @@ class StrandRasterizer:
             element_count=Budgets.MAX_SEGMENTS * Budgets.BYTE_SIZE_SEGMENT_HEADER_FORMAT
         )
 
-        self.b_coarse_tile = gpu.Buffer(
-            name="CoarseTileSegmentBuffer",
+        self.b_segment_data = gpu.Buffer(
+            name="SegmentDataBuffer",
             type=gpu.BufferType.Structured,
-            stride=Budgets.BYTE_SIZE_SEGMENT_FORMAT,
-            element_count=math.ceil(
-                Budgets.BYTE_SIZE_SEGMENT_POOL / Budgets.BYTE_SIZE_SEGMENT_FORMAT)
-        )
-
-        self.b_counter = gpu.Buffer(
-            name="CounterBuffer",
-            type=gpu.BufferType.Standard,
-            format=gpu.Format.R32_UINT,
-            element_count=1
-        )
-
-        self.b_ring = gpu.Buffer(
-            name="RingBuffer",
-            type=gpu.BufferType.Standard,
-            format=gpu.Format.R32_UINT,
-            element_count=Budgets.MAX_SEGMENTS
+            stride=Budgets.BYTE_SIZE_SEGMENT_DATA_FORMAT,
+            element_count=Budgets.MAX_SEGMENTS * Budgets.BYTE_SIZE_SEGMENT_DATA_FORMAT
         )
 
     def create_constant_buffers(self):
         # Vertex Shader
-        self.cb_vertex = gpu.Buffer(
+        self.cb_vertex_setup = gpu.Buffer(
             name="ConstantBufferVertex",
             type=gpu.BufferType.Structured,
             stride=((4 * 4) * 4) + ((4 * 4) * 4) + (4 * 4),  # Matrix V, Matrix P, Params
@@ -125,7 +117,7 @@ class StrandRasterizer:
     def update_constant_buffers(self, context):
         context.cmd.begin_marker("UpdateConstantBuffers")
 
-        # Vertex Shader
+        # Vertex Setup
         context.cmd.upload_resource(
             source=np.array([
                 # _MatrixV
@@ -143,7 +135,8 @@ class StrandRasterizer:
                 # _VertexParams
                 [context.strand_count, context.strand_particle_count, 0, 0],
             ], dtype='f'),
-            destination=self.cb_vertex
+
+            destination=self.cb_vertex_setup
         )
 
         # Segment Setup
@@ -153,7 +146,6 @@ class StrandRasterizer:
         )
 
         # Bin Raster
-        # NOTE: GPU Dependent due to wave size / thread block size.
         round_size = 8 * 64
         min_batches = (1 << 4) * 4
         max_rounds = 64
@@ -210,19 +202,38 @@ class StrandRasterizer:
             self.b_coarse_tile_head
         )
 
-        # Reset the counters
-        Utility.clear_buffer(
-            context.cmd,
-            0,
-            1,
-            self.b_counter
-        )
-
         Utility.clear_buffer(
             context.cmd,
             0,
             Budgets.MAX_SEGMENTS,
             self.b_ring
+        )
+
+        context.cmd.end_marker()
+
+    def vertex_setup(self, context):
+        context.cmd.begin_marker("VertexSetupPass")
+
+        # Compute the vertex count to determine the launch size
+        vertex_count = context.strand_particle_count * context.strand_count
+
+        context.cmd.dispatch(
+            shader=s_vertex_setup,
+
+            constants=[
+                self.cb_vertex_setup
+            ],
+
+            inputs=[
+                context.strands.b_vertices,
+                context.strands.b_strands
+            ],
+
+            outputs=[
+                self.b_vertex_output
+            ],
+
+            x=math.ceil(vertex_count / Budgets.NUM_LANE_PER_WAVE)
         )
 
         context.cmd.end_marker()
@@ -236,19 +247,18 @@ class StrandRasterizer:
             shader=s_segment_setup,
 
             constants=[
-                self.cb_segment_setup,
-                self.cb_vertex
+                self.cb_segment_setup
             ],
 
             inputs=[
-                context.strands.vertex_buffer,
-                context.strands.index_buffer,
-                context.strands.strand_buffer
+                self.b_vertex_output,
+                context.strands.b_indices,
             ],
 
             outputs=[
-                self.b_segment_count,
-                self.b_segment_header
+                self.b_segment_output,
+                self.b_segment_header,
+                self.b_segment_data
             ],
 
             x=math.ceil(context.segment_count / groupSize),
@@ -267,11 +277,10 @@ class StrandRasterizer:
             ],
 
             inputs=[
-                self.b_segment_count,
+                self.b_segment_output,
             ],
 
             outputs=[
-                self.b_counter,
                 self.b_ring
             ],
 
@@ -290,11 +299,7 @@ class StrandRasterizer:
             ],
 
             inputs=[
-                self.b_segment_count,
-            ],
-
-            outputs=[
-                self.b_counter
+                self.b_segment_output,
             ],
 
             x=math.ceil(context.segment_count / 1024),
@@ -312,7 +317,7 @@ class StrandRasterizer:
             ],
 
             inputs=[
-                self.b_segment_count,
+                self.b_segment_output,
             ],
 
             outputs=[
@@ -330,12 +335,6 @@ class StrandRasterizer:
         self.clear_buffers(context)
 
     def go(self, context):
-        context.cmd.begin_marker("Strand Rasterization")
-
         self.new_frame(context)
+        self.vertex_setup(context)
         self.segment_setup(context)
-        self.raster_bin(context)
-        # self.RasterCoarse(context)
-        # self.RasterFine(context)
-
-        context.cmd.end_marker()

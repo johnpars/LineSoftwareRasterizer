@@ -4,8 +4,8 @@ import math
 
 from dataclasses import dataclass
 
-s_clear_target = gpu.Shader(file="ClearTarget.hlsl", name="ClearTarget", main_function="ClearTarget")
-s_clear_buffer = gpu.Shader(file="ClearTarget.hlsl", name="ClearBuffer", main_function="ClearBuffer")
+s_clear_target = gpu.Shader(file="utility/ClearTarget.hlsl",     name="ClearTarget", main_function="ClearTarget")
+s_clear_buffer = gpu.Shader(file="utility/ClearBufferUInt.hlsl", name="ClearBuffer", main_function="ClearBuffer")
 
 
 class MemoryLayout:
@@ -118,10 +118,12 @@ def clear_target(cmd, color, target, w, h):
 def clear_buffer(cmd, value, count, target):
     cmd.dispatch(
         shader=s_clear_buffer,
+
         constants=[
             int(value),
             int(count)
         ],
+
         outputs=target,
 
         # WARNING: Currently lazy hardcoded for tile count buffer!

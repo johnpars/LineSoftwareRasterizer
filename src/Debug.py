@@ -3,14 +3,14 @@ import coalpy.gpu as gpu
 import numpy as np
 
 from dataclasses import dataclass
-from src import StrandRasterizer
+from src import Rasterizer
 from src import Utility
 
 TextureFont = gpu.Texture(file="DebugFont.jpg")
 SamplerFont = gpu.Sampler(filter_type=gpu.FilterType.Linear)
 
-s_frustum_segment_output = gpu.Shader(file="Debug.hlsl", name="CountSegmentSetup", main_function="CountSegmentSetup")
-s_segments_per_tile      = gpu.Shader(file="Debug.hlsl", name="SegmentsPerTile",   main_function="SegmentsPerTile")
+s_count_clipped_segments = gpu.Shader(file="debug/DebugCountClippedSegments.hlsl", name="CountClippedSegments", main_function="CountClippedSegments")
+s_segments_per_tile      = gpu.Shader(file="debug/DebugSegmentsPerTile.hlsl", name="SegmentsPerTile", main_function="SegmentsPerTile")
 
 
 @dataclass
@@ -38,10 +38,10 @@ class Debug:
         cmd.dispatch(
             x=math.ceil(context.segment_count / 64),
             inputs=[
-                rasterizer.b_segment_count
+                rasterizer.b_segment_output
             ],
             outputs=self.b_frustum_segment_output,
-            shader=s_frustum_segment_output
+            shader=s_count_clipped_segments
         )
 
         # Read back and report the result.
@@ -54,7 +54,7 @@ class Debug:
         )
 
     @staticmethod
-    def segments_per_tile(cmd, output_target, w, h, rasterizer: StrandRasterizer):
+    def segments_per_tile(cmd, output_target, w, h, rasterizer: Rasterizer):
         cmd.begin_marker("DebugSegmentsPerTile")
 
         group_dim_x = math.ceil(w / rasterizer.TILE_SIZE_COARSE)

@@ -10,21 +10,21 @@ class StrandDeviceMemory:
 
     def __init__(self):
 
-        self.vertex_buffer = gpu.Buffer(
+        self.b_vertices = gpu.Buffer(
             name="GlobalVertexBuffer",
             type=gpu.BufferType.Structured,
             stride=Budgets.BYTE_SIZE_VERTEX_FORMAT,
             element_count=math.ceil(Budgets.BYTE_SIZE_VERTEX_POOL / Budgets.BYTE_SIZE_VERTEX_FORMAT)
         )
 
-        self.index_buffer = gpu.Buffer(
+        self.b_indices = gpu.Buffer(
             name="GlobalIndexBuffer",
             type=gpu.BufferType.Standard,
             format=gpu.Format.R32_UINT,
             element_count=math.ceil(Budgets.BYTE_SIZE_INDEX_POOL / Budgets.BYTE_SIZE_INDEX_FORMAT)
         )
 
-        self.strand_buffer = gpu.Buffer(
+        self.b_strands = gpu.Buffer(
             name="GlobalStrandPositionBuffer",
             type=gpu.BufferType.Structured,
             stride=Budgets.BYTE_SIZE_STRAND_DATA_FORMAT,
@@ -106,12 +106,12 @@ class StrandDeviceMemory:
 
         cmd.upload_resource(
             source=vertices,
-            destination=self.vertex_buffer
+            destination=self.b_vertices
         )
 
         cmd.upload_resource(
             source=indices,
-            destination=self.index_buffer
+            destination=self.b_indices
         )
 
         gpu.schedule(cmd)
@@ -135,7 +135,7 @@ class StrandDeviceMemory:
 
         cmd.upload_resource(
             source=positionsGPU,
-            destination=self.strand_buffer
+            destination=self.b_strands
         )
 
         gpu.schedule(cmd)

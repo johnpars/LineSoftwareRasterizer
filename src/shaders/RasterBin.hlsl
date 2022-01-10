@@ -26,7 +26,7 @@ RWBuffer<uint> _RingBuffer    : register(u1); // Temporary buffer to view memory
 
 // Local
 // ----------------------------------------
-groupshared uint g_RingBuffer[WAVE_COUNT * NUM_THREAD_PER_WARP]; // Group-sized buffer that contains valid segment indices.
+groupshared uint g_RingBuffer[WAVE_COUNT * NUM_LANE_PER_WAVE]; // Group-sized buffer that contains valid segment indices.
 groupshared uint g_RingBufferPrefixScratch[WAVE_COUNT];          // Utility scratch memory for computation of the group prefix sum.
 groupshared uint g_RingBufferCount;                              //
 groupshared uint g_BatchPos;                                     //
@@ -76,7 +76,7 @@ uint GroupPrefixSum(uint laneID, uint x)
 
 // Kernel (1 Thread Block = 1 SM/CU)
 // ----------------------------------------
-[numthreads(WAVE_COUNT * NUM_THREAD_PER_WARP, 1, 1)]
+[numthreads(WAVE_COUNT * NUM_LANE_PER_WAVE, 1, 1)]
 void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
 {
     uint batchPos = 0;
@@ -109,7 +109,7 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
             // Input phase. Add valid segments into the ring buffer until it is full.
             // This process will compact or expand the results of the segment setup (clipping / tesselation).
             // and ensure that every thread in the group will have some work to do.
-            while(bufferCount < WAVE_COUNT * NUM_THREAD_PER_WARP && batchPos < batchEnd)
+            while(bufferCount < WAVE_COUNT * NUM_LANE_PER_WAVE && batchPos < batchEnd)
             {
                 const uint segmentIndex = batchPos + groupIndex;
 
@@ -134,7 +134,7 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
                     GroupMemoryBarrierWithGroupSync();
 
                     // Shift forward the batch position as well
-                    g_BatchPos = batchPos + WAVE_COUNT * NUM_THREAD_PER_WARP;
+                    g_BatchPos = batchPos + WAVE_COUNT * NUM_LANE_PER_WAVE;
                 }
 
                 // Record the segment to the ring buffer.

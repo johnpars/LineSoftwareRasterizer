@@ -10,11 +10,11 @@ RWBuffer<uint> _CounterBuffer : register(u0);
 
 // Define
 // ----------------------------------------
-#define NUM_WARP 8
+#define NUM_WAVE 8
 
 // Kernel
 // ----------------------------------------
-[numthreads(NUM_WARP * NUM_THREAD_PER_WARP, 1, 1)]
+[numthreads(NUM_WAVE * NUM_LANE_PER_WAVE, 1, 1)]
 void RasterCoarse(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
 }
