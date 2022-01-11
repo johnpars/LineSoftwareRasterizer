@@ -8,14 +8,8 @@ from src import Utility
 from src import Budgets
 from src import StrandDeviceMemory
 
-# Stage Kernels
-#########################################################################################################
 s_vertex_setup  = gpu.Shader(file="VertexSetup.hlsl",  name="VertexSetup",  main_function="VertexSetup")
 s_segment_setup = gpu.Shader(file="SegmentSetup.hlsl", name="SegmentSetup", main_function="SegmentSetup")
-s_raster_bin    = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",    main_function="RasterBin")
-s_raster_coarse = gpu.Shader(file="RasterCoarse.hlsl", name="RasterCoarse", main_function="RasterCoarse")
-s_raster_fine   = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",   main_function="RasterFine")
-#########################################################################################################
 
 @dataclass
 class Context:
@@ -49,12 +43,9 @@ class Rasterizer:
         self.b_segment_output = None
         self.b_segment_header = None
         self.b_segment_data   = None
-        self.b_coarse_tile    = None
         self.create_resource_buffers()
 
         # Resolution Dependent
-        self.b_coarse_tile_count = None
-        self.b_coarse_tile_head  = None
         self.update_resolution_dependent_buffers(w, h)
 
     def create_resource_buffers(self):
@@ -66,7 +57,7 @@ class Rasterizer:
         )
 
         self.b_segment_output = gpu.Buffer(
-            name="SegmentCountBuffer",
+            name="SegmentOutputBuffer",
             type=gpu.BufferType.Raw,
             element_count=Budgets.MAX_SEGMENTS
         )
@@ -86,7 +77,6 @@ class Rasterizer:
         )
 
     def create_constant_buffers(self):
-        # Vertex Shader
         self.cb_vertex_setup = gpu.Buffer(
             name="ConstantBufferVertex",
             type=gpu.BufferType.Structured,
@@ -95,7 +85,6 @@ class Rasterizer:
             is_constant_buffer=True
         )
 
-        # Segment Setup
         self.cb_segment_setup = gpu.Buffer(
             name="ConstantBufferSegmentSetup",
             type=gpu.BufferType.Structured,
@@ -104,18 +93,7 @@ class Rasterizer:
             is_constant_buffer=True
         )
 
-        # Raster Bin
-        self.cb_raster_bin = gpu.Buffer(
-            name="ConstantBufferRasterBin",
-            type=gpu.BufferType.Structured,
-            stride=(4 * 4),
-            element_count=1,
-            is_constant_buffer=True
-        )
-
     def update_constant_buffers(self, context):
-        context.cmd.begin_marker("UpdateConstantBuffers")
-
         # Vertex Setup
         context.cmd.upload_resource(
             source=np.array([
@@ -144,19 +122,6 @@ class Rasterizer:
             destination=self.cb_segment_setup
         )
 
-        # Bin Raster
-        round_size = 8 * 64
-        min_batches = (1 << 4) * 4
-        max_rounds = 64
-        batch_size = Utility.clamp(context.segment_count / (round_size * min_batches), 1, max_rounds) * round_size
-
-        context.cmd.upload_resource(
-            source=np.array([context.segment_count, batch_size, 0, 0], dtype='f'),
-            destination=self.cb_raster_bin
-        )
-
-        context.cmd.end_marker()
-
     def update_resolution_dependent_buffers(self, w, h):
         if w <= self.mW and h <= self.mH:
             return
@@ -164,40 +129,8 @@ class Rasterizer:
         self.mW = w
         self.mH = h
 
-        cw = math.ceil(w / Budgets.TILE_SIZE_COARSE)
-        ch = math.ceil(h / Budgets.TILE_SIZE_COARSE)
-
-        self.b_coarse_tile_count = gpu.Buffer(
-            name="CoarseTileSegmentCount",
-            type=gpu.BufferType.Standard,
-            format=gpu.Format.R32_UINT,
-            element_count=cw * ch
-        )
-
-        self.b_coarse_tile_head = gpu.Buffer(
-            name="CoarseTileHeadPointerBuffer",
-            type=gpu.BufferType.Raw,
-            element_count=cw * ch
-        )
-
     def clear_buffers(self, context):
-        Utility.clear_buffer(
-            context.cmd,
-            0,
-            math.ceil(context.w / Budgets.TILE_SIZE_COARSE) *
-            math.ceil(context.h / Budgets.TILE_SIZE_COARSE),
-            self.b_coarse_tile_count,
-            Utility.ClearMode.UINT
-        )
-
-        Utility.clear_buffer(
-            context.cmd,
-            -1,  # 0xFFFFFFFF
-            math.ceil(context.w / Budgets.TILE_SIZE_COARSE) *
-            math.ceil(context.h / Budgets.TILE_SIZE_COARSE),
-            self.b_coarse_tile_head,
-            Utility.ClearMode.RAW
-        )
+        pass
 
     def vertex_setup(self, context):
         context.cmd.begin_marker("VertexSetupPass")
@@ -250,61 +183,6 @@ class Rasterizer:
             ],
 
             x=math.ceil(context.segment_count / groupSize),
-        )
-
-        context.cmd.end_marker()
-
-    def raster_bin(self, context):
-        context.cmd.begin_marker("BinPass")
-
-        context.cmd.dispatch(
-            shader=s_raster_bin,
-
-            constants=[
-                self.cb_raster_bin
-            ],
-
-            inputs=[
-                self.b_segment_output,
-            ],
-
-            x=16,
-        )
-
-        context.cmd.end_marker()
-
-    def raster_coarse(self, context):
-        context.cmd.begin_marker("CoarsePass")
-
-        context.cmd.dispatch(
-            shader=s_raster_coarse,
-
-            constants=[
-            ],
-
-            inputs=[
-                self.b_segment_output,
-            ],
-
-            x=math.ceil(context.segment_count / 1024),
-        )
-
-        context.cmd.end_marker()
-
-    def raster_fine(self, context):
-        context.cmd.begin_marker("FinePass")
-
-        context.cmd.dispatch(
-            shader=s_raster_fine,
-
-            constants=[
-            ],
-
-            inputs=[
-                self.b_segment_output,
-            ],
-
-            x=math.ceil(context.segment_count / 1024)
         )
 
         context.cmd.end_marker()

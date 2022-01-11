@@ -73,8 +73,12 @@ void RasterCoverage(uint3 dti : SV_DispatchThreadID)
             // Get the tile's center.
             float2 center = aabbTile.Center();
 
+            // We want the barycentric between the original segment vertices, not the clipped vertices.
+            float2 p0 = v0.positionCS.xy / v0.positionCS.w;
+            float2 p1 = v1.positionCS.xy / v1.positionCS.w;
+
             float barycenter;
-            const float distance = DistanceToSegmentAndBarycentricCoordinate(center, segment.v0, segment.v1, barycenter);
+            const float distance = DistanceToSegmentAndBarycentricCoordinate(center, p0, p1, barycenter);
 
             // Compute the segment coverage provided by the segment distance.
             float coverage = 1 - smoothstep(0.0, 0.002, distance);
@@ -100,7 +104,7 @@ void RasterCoverage(uint3 dti : SV_DispatchThreadID)
 
             FragmentData data;
             {
-                data.color = float4(ColorCycle(i, _SegmentCount), coverage);
+                data.color = float4(ColorCycle(i, _SegmentCount), 0.2 * coverage);
                 data.depth = d;
                 data.next  = next;
             }

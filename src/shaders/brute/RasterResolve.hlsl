@@ -22,7 +22,7 @@ RWTexture2D<float4> _OutputTarget : register(u0);
 // Defines
 #define _ScreenParams _Params0.yz
 
-#define LAYERS_PER_PIXEL 4
+#define LAYERS_PER_PIXEL 16
 #define LAST_NODE        0xFFFFFFFF
 
 // Maximum representable floating-point number

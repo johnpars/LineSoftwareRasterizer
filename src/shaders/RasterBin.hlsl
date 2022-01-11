@@ -7,29 +7,30 @@ cbuffer ConstantsSetup : register(b0)
     float4 _Params;
 }
 
-// TODO: If we end up not doing tesselation in the segment setup, we can go from uint -> bool. We should also switch
-// to ByteAddressBuffer regardless.
-StructuredBuffer<uint> _SegmentOutputBuffer : register(t0);
+ByteAddressBuffer               _SegmentOutputBuffer : register(t0);
+StructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(t1);
 
 // Outputs
 // ----------------------------------------
 RWBuffer<uint> _CounterBuffer : register(u0); // Counter buffer for inter-block coordination via global atomics.
-RWBuffer<uint> _RingBuffer    : register(u1); // Temporary buffer to view memory dump of a block's LDS ring buffer
+RWBuffer<uint> _BinCounter    : register(u1);
 
 // Define
 // ----------------------------------------
 #define _SegmentCount _Params.x
 #define _BatchSize    _Params.y
+#define _ScreenParams _Params.zw
 
 // Launch 512 threads per processor.
 #define WAVE_COUNT 8
+#define LANE_COUNT WAVE_COUNT * NUM_LANE_PER_WAVE
 
 // Local
 // ----------------------------------------
 groupshared uint g_RingBuffer[WAVE_COUNT * NUM_LANE_PER_WAVE]; // Group-sized buffer that contains valid segment indices.
-groupshared uint g_RingBufferPrefixScratch[WAVE_COUNT];          // Utility scratch memory for computation of the group prefix sum.
-groupshared uint g_RingBufferCount;                              //
-groupshared uint g_BatchPos;                                     //
+groupshared uint g_RingBufferPrefixScratch[WAVE_COUNT];        // Scratch memory for computation of the group prefix sum.
+groupshared uint g_RingBufferCount;                            // Intra-block counter for ring buffer index computation.
+groupshared uint g_BatchPos;                                   // Inter-block counter for group coordination of batching.
 
 // Utility
 // ----------------------------------------
@@ -75,14 +76,16 @@ uint GroupPrefixSum(uint laneID, uint x)
 
 
 // Kernel (1 Thread Block = 1 SM/CU)
+// This kernel is responsible for distributing segment rasterization work.
+// It is the first "sync point" of continues lines into discretized screen space tiles.
 // ----------------------------------------
-[numthreads(WAVE_COUNT * NUM_LANE_PER_WAVE, 1, 1)]
+[numthreads(LANE_COUNT, 1, 1)]
 void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
 {
     uint batchPos = 0;
 
     // Persistent thread:
-    // Process the segment data until we exhaust the buffer.
+    // Process the segment data until we exhaust the input buffer.
     for (;;)
     {
         // First thread in the block increases the batch counter, and informs the other threads in the block.
@@ -96,20 +99,20 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
             break;
 
         // Per-Thread State
-        uint bufferIndex = 0;
         uint bufferCount = 0;
         uint batchEnd    = min(batchPos + _BatchSize, _SegmentCount);
 
         // Keep processing this batch until it is exhausted.
         do
         {
-            // Clear the LDS
+            // Reset the index for the next round.
             g_RingBuffer[groupIndex] = 0;
+            g_RingBufferCount = 0;
 
-            // Input phase. Add valid segments into the ring buffer until it is full.
+            // 1) Input phase. Add valid segments into the ring buffer until it is full.
             // This process will compact or expand the results of the segment setup (clipping / tesselation).
             // and ensure that every thread in the group will have some work to do.
-            while(bufferCount < WAVE_COUNT * NUM_LANE_PER_WAVE && batchPos < batchEnd)
+            while(bufferCount < LANE_COUNT && batchPos < batchEnd)
             {
                 const uint segmentIndex = batchPos + groupIndex;
 
@@ -120,46 +123,60 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
                 // (Currently we assume zero or one, but potentially more in the future if tessellated).
                 if (segmentIndex < batchEnd)
                 {
-                    segmentOutput = _SegmentOutputBuffer[segmentIndex];
+                    segmentOutput = _SegmentOutputBuffer.Load(4 * segmentIndex);
                 }
 
-                // Compute the exclusive prefix sum of the segment number across the thread block.
+                // Compute the exclusive prefix sum of the segment output across the thread block.
                 // Use it to determine an index into the ring buffer.
+                // TODO: Write a slow guaranteed sequential prefix sum to make sure this isn't broken
                 const uint ringBufferIndex = bufferCount + GroupPrefixSum(groupIndex, segmentOutput);
-
-                // Update the indices of the loop.
-                {
-                    // Find the maximum index in the thread block.
-                    InterlockedMax(g_RingBufferCount, ringBufferIndex);
-                    GroupMemoryBarrierWithGroupSync();
-
-                    // Shift forward the batch position as well
-                    g_BatchPos = batchPos + WAVE_COUNT * NUM_LANE_PER_WAVE;
-                }
 
                 // Record the segment to the ring buffer.
                 if (segmentOutput)
                 {
                     g_RingBuffer[ringBufferIndex] = segmentIndex;
                 }
+
+                // Update the ring buffer offset with a local atomic.
+                InterlockedAdd(g_RingBufferCount, segmentOutput);
                 GroupMemoryBarrierWithGroupSync();
-
-                // TEMP: Write the ring buffer in LDS out to global memory to debug.
-                _RingBuffer[batchPos + groupIndex] = g_RingBuffer[groupIndex];
-
                 bufferCount = g_RingBufferCount;
-                batchPos    = g_BatchPos;
+
+                // Advance the batch location.
+                batchPos = batchPos + LANE_COUNT;
             }
 
-            // TODO: Process the ring buffer. Assign a segment per-lane.
+            // 2) Tiled Raster Phase. Each thread picks up a thread in the ring buffer and determines the bin coverage.
+            // NVIDIA proposes each CTA / Block manages its own output queue which is later merged in a coarse raster
+            // pass. For now, just fire into a buffer with atomics.
 
-            // Early out for now.
-            break;
+            // Pick a segment from the ring buffer.
+            const SegmentRecord segment = _SegmentRecordBuffer[g_RingBuffer[groupIndex]];
+
+            // Determine the AABB of the segment.
+            AABB aabb;
+            aabb.min = min(segment.v0, segment.v1);
+            aabb.max = max(segment.v0, segment.v1);
+
+            // Transform AABB: NDC -> Tiled Raster Space.
+            int2 tilesB = ((aabb.min.xy * 0.5 + 0.5) * _ScreenParams) / 16;
+            int2 tilesE = ((aabb.max.xy * 0.5 + 0.5) * _ScreenParams) / 16;
+
+            tilesB = clamp(tilesB, int2(0, 0), uint2(80, 45) - 1);
+            tilesE = clamp(tilesE, int2(0, 0), uint2(80, 45) - 1);
+
+            // Scan the AABB and determine per-tile coverage of the segment.
+            for (uint x = tilesB.x; x <= tilesE.x; ++x)
+            for (uint y = tilesB.y; y <= tilesE.y; ++y)
+            {
+                InterlockedAdd(_BinCounter[y * 80 + x], 1);
+            }
+
+            // Pass-thru the buffer.
+            bufferCount = 0;
         }
-        while(bufferCount > 0 || batchPos < batchEnd);
+        while(batchPos < batchEnd);
 
-        // Rasterization phase.
-
-        return;
+        // --
     }
 }

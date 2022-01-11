@@ -65,12 +65,16 @@ class RasterizerBrute(Rasterizer.Rasterizer):
         )
 
     def update_constant_buffers(self, context):
+        context.cmd.begin_marker("Update Constant Buffers")
+
         super().update_constant_buffers(context)
 
         context.cmd.upload_resource(
             source=np.array([context.segment_count, context.w, context.h, 0], dtype='f'),
             destination=self.cb_brute
         )
+
+        context.cmd.end_marker()
 
     def clear_buffers(self, context):
         context.cmd.begin_marker("Clear Buffers")
@@ -96,7 +100,6 @@ class RasterizerBrute(Rasterizer.Rasterizer):
         context.cmd.end_marker()
 
     def raster_coverage(self, context):
-
         context.cmd.begin_marker("Coverage")
 
         context.cmd.dispatch(
@@ -155,10 +158,10 @@ class RasterizerBrute(Rasterizer.Rasterizer):
         # 1) Dispatch geometry processing and segment setup stages (clipping, etc).
         super().go(context)
 
-        # 2) Coverage pass that pushes all contributing fragments into a linked list.
+        # 2) Coverage pass that pushes all contributing fragments into a per-pixel linked list.
         self.raster_coverage(context)
 
-        # 3) Resolve pass that walks down the per-pixel fragment linked list and solves transmittance function.
+        # 3) Resolve pass that walks down the per-pixel fragment linked list and solves the transmittance function.
         self.raster_resolve(context)
 
         context.cmd.end_marker()

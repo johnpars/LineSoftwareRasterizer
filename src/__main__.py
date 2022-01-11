@@ -8,27 +8,29 @@ from src import StrandFactory
 from src import StrandDeviceMemory
 from src import Rasterizer
 from src import RasterizerBrute
+from src import RasterizerBinned
 
 initial_width  = 1280
 initial_height = 720
 
 # Allocate a chunk of device memory resources
-deviceMemory = StrandDeviceMemory.StrandDeviceMemory()
+device_memory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
-strands = StrandFactory.build_from_asset("cube_hair")
+strands = StrandFactory.build_from_asset("long_hair")
 
 # Layout the initial memory and bind the position data
-deviceMemory.layout(strands.strand_count, strands.strand_particle_count)
-deviceMemory.bind_strand_position_data(strands.particle_positions)
+device_memory.layout(strands.strand_count, strands.strand_particle_count)
+device_memory.bind_strand_position_data(strands.particle_positions)
 
 # Create the rasterizer, allocating internal resources.
-rasterizer = RasterizerBrute.RasterizerBrute(initial_width, initial_height)
+# rasterizer = RasterizerBrute.RasterizerBrute(initial_width, initial_height)
+rasterizer = RasterizerBinned.RasterizerBinned(initial_width, initial_height)
 
 # Create the debugger
 debug = Debug.Debug()
 
-editor = Editor.Editor(deviceMemory, strands)
+editor = Editor.Editor(device_memory, strands)
 
 
 def on_render(render_args: gpu.RenderArgs):
@@ -56,7 +58,7 @@ def on_render(render_args: gpu.RenderArgs):
         cmd, w, h,
         editor.camera.view_matrix,
         editor.camera.proj_matrix,
-        deviceMemory,
+        device_memory,
         editor.strands.strand_count,
         editor.strands.strand_count * (editor.strands.strand_particle_count - 1),
         editor.strands.strand_particle_count,
@@ -68,6 +70,13 @@ def on_render(render_args: gpu.RenderArgs):
 
     # Crunch some numbers about the rasterizer for this frame.
     stats = debug.compute_stats(
+        cmd,
+        rasterizer,
+        context
+    )
+
+    # Debug draw bin counts
+    debug.draw_bin_counts(
         cmd,
         rasterizer,
         context

@@ -55,11 +55,11 @@ class Debug:
         )
 
     @staticmethod
-    def segments_per_tile(cmd, output_target, w, h, rasterizer: Rasterizer):
+    def draw_bin_counts(cmd, rasterizer, context):
         cmd.begin_marker("DebugSegmentsPerTile")
 
-        group_dim_x = math.ceil(w / rasterizer.TILE_SIZE_COARSE)
-        group_dim_y = math.ceil(h / rasterizer.TILE_SIZE_COARSE)
+        group_dim_y = math.ceil(context.h / 16)
+        group_dim_x = math.ceil(context.w / 16)
 
         cmd.dispatch(
             shader=s_segments_per_tile,
@@ -71,15 +71,14 @@ class Debug:
 
             inputs=[
                 TextureFont,
-                rasterizer.b_coarse_tile_count
+                rasterizer.b_bin_count
             ],
 
-            outputs=output_target,
-
+            outputs=context.target,
             samplers=SamplerFont,
 
-            x=math.ceil(w / 16),
-            y=math.ceil(h / 16),
+            x=math.ceil(context.w / 16),
+            y=math.ceil(context.h / 16),
             z=1
         )
 
