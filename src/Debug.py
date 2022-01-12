@@ -71,7 +71,7 @@ class Debug:
 
             inputs=[
                 TextureFont,
-                rasterizer.b_bin_count
+                rasterizer.b_bin_counters
             ],
 
             outputs=context.target,

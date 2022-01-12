@@ -4,32 +4,62 @@ import coalpy.gpu as gpu
 
 from src import Utility
 from src import Budgets
+from src import PrefixSum
 from src import Rasterizer
 
-s_raster_bin    = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",    main_function="RasterBin")
-s_raster_coarse = gpu.Shader(file="RasterCoarse.hlsl", name="RasterCoarse", main_function="RasterCoarse")
-s_raster_fine   = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",   main_function="RasterFine")
+# Stage Kernels
+s_raster_bin            = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",     main_function="RasterBin")
+s_raster_fine           = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",    main_function="RasterFine")
+s_build_work_queue_args = gpu.Shader(file="WorkQueue.hlsl",    name="WorkQueueArgs", main_function="BuildWorkQueueArgs")
+s_build_work_queue      = gpu.Shader(file="WorkQueue.hlsl",    name="WorkQueue",     main_function="BuildWorkQueue")
 
 
 class RasterizerBinned(Rasterizer.Rasterizer):
     def __init__(self, w, h):
 
         # Resources
-        self.b_counters = None
-        self.b_bin_count = None
+        self.b_bin_records = None
+        self.b_bin_records_counter = None
+        self.b_bin_counters = None
+        self.b_bin_offsets = None
+        self.b_work_queue = None
+        self.b_work_queue_args = None
+        self.b_prefix_sum_args = None
 
         # Constant buffers
         self.cb_raster_bin = None
 
+        # Will invoke the creation of resources
         super().__init__(w, h)
 
     def create_resource_buffers(self):
         super().create_resource_buffers()
 
-        self.b_counters = gpu.Buffer(
-            name="CounterBuffer",
+        self.b_bin_records = gpu.Buffer(
+            name="BinRecords",
+            type=gpu.BufferType.Structured,
+            stride=Budgets.BYTE_SIZE_BIN_RECORD_FORMAT,
+            element_count=math.ceil(Budgets.BYTE_SIZE_BIN_RECORD_POOL / Budgets.BYTE_SIZE_BIN_RECORD_FORMAT)
+        )
+
+        self.b_bin_records_counter = gpu.Buffer(
+            name="BinRecordsCounter",
             type=gpu.BufferType.Standard,
             format=gpu.Format.R32_UINT,
+            element_count=1
+        )
+
+        self.b_work_queue = gpu.Buffer(
+            name="WorkQueue",
+            type=gpu.BufferType.Standard,
+            format=gpu.Format.R32_UINT,
+            element_count=math.ceil(Budgets.BYTE_SIZE_WORK_QUEUE_POOL / Budgets.BYTE_SIZE_WORK_QUEUE_FORMAT)
+        )
+
+        self.b_work_queue_args = gpu.Buffer(
+            name="WorkQueueArgs",
+            type=gpu.BufferType.Standard,
+            format=gpu.Format.RGBA_32_UINT,
             element_count=1
         )
 
@@ -39,7 +69,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         self.cb_raster_bin = gpu.Buffer(
             name="ConstantBufferRasterBin",
             type=gpu.BufferType.Structured,
-            stride=(4 * 4),
+            stride=(4 * 4) * 2,
             element_count=1,
             is_constant_buffer=True
         )
@@ -50,27 +80,56 @@ class RasterizerBinned(Rasterizer.Rasterizer):
 
         super().update_resolution_dependent_buffers(w, h)
 
-        self.b_bin_count = gpu.Buffer(
+        bin_w, bin_h = (math.ceil(w / Budgets.TILE_SIZE_BIN), math.ceil(h / Budgets.TILE_SIZE_BIN))
+
+        self.b_bin_counters = gpu.Buffer(
             name="BinCountBuffer",
             type=gpu.BufferType.Standard,
             format=gpu.Format.R32_UINT,
-            element_count=math.ceil(w / 16) * math.ceil(h / 16)
+            element_count=bin_w * bin_h
         )
+
+        self.b_prefix_sum_args = PrefixSum.allocate_args(bin_w * bin_h)
 
     def update_constant_buffers(self, context):
         context.cmd.begin_marker("Update Constant Buffers")
 
         super().update_constant_buffers(context)
 
-        # Bin Raster
-        round_size = 8 * 64
-        min_batches = (1 << 4) * 4
-        max_rounds = 64
-        batch_size = 1024 # Utility.clamp(context.segment_count / (round_size * min_batches), 1, max_rounds) * round_size
-
         context.cmd.upload_resource(
-            source=np.array([context.segment_count, math.ceil(batch_size), context.w, context.h], dtype='f'),
+            source=np.array([
+                context.segment_count,
+                context.w,
+                context.h,
+                Budgets.TILE_SIZE_BIN,
+                math.ceil(context.w / Budgets.TILE_SIZE_BIN),
+                math.ceil(context.h / Budgets.TILE_SIZE_BIN),
+
+            ], dtype='f'),
             destination=self.cb_raster_bin
+        )
+
+        context.cmd.end_marker()
+
+    def clear_buffers(self, context):
+        context.cmd.begin_marker("Clear Buffers")
+
+        super().clear_buffers(context)
+
+        Utility.clear_buffer(
+            context.cmd,
+            0,
+            1,
+            self.b_bin_records_counter,
+            Utility.ClearMode.UINT
+        )
+
+        Utility.clear_buffer(
+            context.cmd,
+            0,
+            math.ceil(context.w / Budgets.TILE_SIZE_BIN) * math.ceil(context.h / Budgets.TILE_SIZE_BIN),
+            self.b_bin_counters,
+            Utility.ClearMode.UINT
         )
 
         context.cmd.end_marker()
@@ -91,29 +150,55 @@ class RasterizerBinned(Rasterizer.Rasterizer):
             ],
 
             outputs=[
-                self.b_counters,
-                self.b_bin_count
+                self.b_bin_records,
+                self.b_bin_records_counter,
+                self.b_bin_counters
             ],
 
-            x=Budgets.NUM_CU,
+            x=math.ceil(context.segment_count / Budgets.NUM_LANE_PER_WAVE)
         )
 
         context.cmd.end_marker()
+        
+    def build_work_queue(self, context):
 
-    def raster_coarse(self, context):
-        context.cmd.begin_marker("CoarsePass")
+        context.cmd.begin_marker("BuildWorkQueue")
 
+        bin_w, bin_h = (math.ceil(context.w / Budgets.TILE_SIZE_BIN), math.ceil(context.h / Budgets.TILE_SIZE_BIN))
+
+        # 1) Generate offset indices into the global work queue, by performing a prefix sum on the bin counters.
+        self.b_bin_offsets = PrefixSum.run(
+            context.cmd,
+            self.b_bin_counters,
+            self.b_prefix_sum_args,
+            True,
+            bin_w * bin_h
+        )
+
+        # 2) Derive a dispatch launch size from the amount of bin records.
         context.cmd.dispatch(
-            shader=s_raster_coarse,
-
-            constants=[
-            ],
-
+            shader=s_build_work_queue_args,
             inputs=[
-                self.b_segment_output,
+                self.b_bin_records_counter
             ],
+            outputs=[
+                self.b_work_queue_args
+            ],
+            x=1
+        )
 
-            x=math.ceil(context.segment_count / 1024),
+        # 3) Indirectly dispatch the work queue construction.
+        context.cmd.dispatch(
+            indirect_args=self.b_work_queue_args,
+            shader=s_build_work_queue,
+            inputs=[
+                self.b_bin_offsets,
+                self.b_bin_records,
+                self.b_bin_records_counter
+            ],
+            outputs=[
+                self.b_work_queue
+            ]
         )
 
         context.cmd.end_marker()
@@ -136,29 +221,6 @@ class RasterizerBinned(Rasterizer.Rasterizer):
 
         context.cmd.end_marker()
 
-    def clear_buffers(self, context):
-        context.cmd.begin_marker("Clear Buffers")
-
-        super().clear_buffers(context)
-
-        Utility.clear_buffer(
-            context.cmd,
-            0,
-            1,
-            self.b_counters,
-            Utility.ClearMode.UINT
-        )
-
-        Utility.clear_buffer(
-            context.cmd,
-            0,
-            math.ceil(context.w / 16) * math.ceil(context.h / 16),
-            self.b_bin_count,
-            Utility.ClearMode.UINT
-        )
-
-        context.cmd.end_marker()
-
     def go(self, context):
         context.cmd.begin_marker("Raster (Binned)")
 
@@ -168,8 +230,8 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         # 2) Binning Stage
         self.raster_bin(context)
 
-        # 3) Coarse Stage
-        pass
+        # 3) Work Queue
+        self.build_work_queue(context)
 
         # 4) Fine Stage
         pass

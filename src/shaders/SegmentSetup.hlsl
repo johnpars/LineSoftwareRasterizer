@@ -123,7 +123,7 @@ void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
         return;
 
     // Load Indices
-    const uint2 segmentIndices = _IndexBuffer.Load2(i * 8);
+    const uint2 segmentIndices = _IndexBuffer.Load2(8 * i);
 
     // Load Vertices
     VertexOutput o_v0 = _VertexBuffer[segmentIndices.x];
@@ -145,7 +145,7 @@ void SegmentSetup(uint3 dispatchThreadID : SV_DispatchThreadID)
     float3 p0 = v[0].xyz / v[0].w;
     float3 p1 = v[1].xyz / v[1].w;
 
-    // Cohen-Sutherland algorithm to perform line segment clipping in NDC space.
+    // Cohen-Sutherland algorithm to perform line segment clipping in NDC space. TODO: Do it in clip space.
     if(!ClipSegmentCohenSutherland(p0.x, p0.y, p1.x, p1.y))
     {
         CULL_SEGMENT(i);

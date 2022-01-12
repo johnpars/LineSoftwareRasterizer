@@ -1,3 +1,11 @@
+// Notes
+
+// [NOTE-BINNING-PERSISTENT-THREADS]
+// We explored a persistent thread based work distribution model for the binner but after some initial profiling
+// it just does not seem to be worth it for segments. Additionally, a lot of motivation for PS for the binner was to
+// help maintain submission order. This is less stringint of a requirement for hair strands since there is an order-independent
+// coverage resolve in the fine rasterizer.
+
 // Defines
 // -----------------------------------------------------
 
@@ -50,6 +58,13 @@ struct SegmentData
     uint vi1;
 };
 
+struct BinRecord
+{
+    uint segmentIndex;
+    uint binIndex;
+    uint binOffset;
+};
+
 struct AABB
 {
     float2 min;
@@ -85,3 +100,26 @@ float DistanceToSegmentAndBarycentricCoordinate(float2 P, float2 A, float2 B, ou
 
     return length(PA - H * BA);
 }
+
+// bool SegmentIntersectsAABB(float3 p0, float3 p1, int x, int y)
+// {
+//     float2 tileB = float2(x, y);
+//     float2 tileE = tileB + 1.0;
+//
+//     // Construct an AABB of this tile.
+//     AABB aabbTile;
+//     aabbTile.min = float2(tileB * _TileSizeSS - 1.0);
+//     aabbTile.max = float2(tileE * _TileSizeSS - 1.0);
+//
+//     // Get the tile's center.
+//     float2 center = aabbTile.Center();
+//
+//     // Re-use the coverage computation to factor in strand width.
+//     float unused;
+//     float d = DistanceToSegmentAndBarycentricCoordinate(center.xy, p0.xy, p1.xy, unused);
+//
+//     // Compute the segment coverage provided by the segment distance.
+//     float coverage = 1 - smoothstep(0.0, 0.02, d);
+//
+//     return any(coverage);
+// }

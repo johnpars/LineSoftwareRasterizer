@@ -115,6 +115,14 @@ def clamp(x, minimum, maximum):
     return max(minimum, min(x, maximum))
 
 
+def divup(a, b):
+    return int((a + b - 1)/b)
+
+
+def alignup(a, b):
+    return divup(a, b) * b
+
+
 def clear_target(cmd, color, target, w, h):
     cmd.dispatch(
         shader=s_clear_target,
