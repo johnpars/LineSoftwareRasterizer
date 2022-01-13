@@ -10,10 +10,9 @@
 // -----------------------------------------------------
 
 // Hardware specific metrics, based on Nvidia Quadro RTX 8000.
-// TEMP: Specs for Radeon Pro 460 GCN
-#define NUM_CU              16 // 72
-#define NUM_WAVE_PER_CU     40 // 32
-#define NUM_LANE_PER_WAVE   64 // 32
+#define NUM_CU              72
+#define NUM_WAVE_PER_CU     32
+#define NUM_LANE_PER_WAVE   32
 
 #define ZERO_INITIALIZE(type, name) name = (type)0;
 
@@ -43,6 +42,7 @@ struct VertexInput
 struct VertexOutput
 {
     float4 positionCS;
+    float  texCoord;
 };
 
 struct SegmentRecord
@@ -90,36 +90,20 @@ uint WaveIndex(uint groupIndex)
 
 // Signed distance to a line segment.
 // Ref: https://www.shadertoy.com/view/3tdSDj
-float DistanceToSegmentAndBarycentricCoordinate(float2 P, float2 A, float2 B, out float H)
+float DistanceToSegmentAndTValue(float2 P, float2 A, float2 B, out float T)
 {
     float2 BA = B - A;
     float2 PA = P - A;
 
     // Also output the 'barycentric' segment coordinate computed as a bi-product of the coverage.
-    H = clamp( dot(PA, BA) / dot(BA, BA), 0.0, 1.0);
+    T = clamp( dot(PA, BA) / dot(BA, BA), 0.0, 1.0);
 
-    return length(PA - H * BA);
+    return length(PA - T * BA);
 }
 
-// bool SegmentIntersectsAABB(float3 p0, float3 p1, int x, int y)
-// {
-//     float2 tileB = float2(x, y);
-//     float2 tileE = tileB + 1.0;
-//
-//     // Construct an AABB of this tile.
-//     AABB aabbTile;
-//     aabbTile.min = float2(tileB * _TileSizeSS - 1.0);
-//     aabbTile.max = float2(tileE * _TileSizeSS - 1.0);
-//
-//     // Get the tile's center.
-//     float2 center = aabbTile.Center();
-//
-//     // Re-use the coverage computation to factor in strand width.
-//     float unused;
-//     float d = DistanceToSegmentAndBarycentricCoordinate(center.xy, p0.xy, p1.xy, unused);
-//
-//     // Compute the segment coverage provided by the segment distance.
-//     float coverage = 1 - smoothstep(0.0, 0.02, d);
-//
-//     return any(coverage);
-// }
+float DistanceToCubicBezierAndTValue(float2 P, float2 A, float2 B, float2 C, float2 D, out float T)
+{
+    T = 0;
+
+    return 0;
+}

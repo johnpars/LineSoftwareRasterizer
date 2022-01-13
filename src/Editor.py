@@ -44,6 +44,9 @@ class Editor:
         self.device_memory = deviceMemory
         self.strands = strands
 
+        # rasterizer settings
+        self.debug_bin_overlay = 0.0
+
         # ui panels states
         self.panel_camera  = False
         self.panel_strands = False
@@ -160,6 +163,9 @@ class Editor:
         imgui.text("Total Segments:               " + str(stats.segmentCount))
         imgui.text("Frustum Culled (Pass / Fail): {} / {}".format(stats.segmentCountPassedFrustumCull,
                                                                   stats.segmentCount - stats.segmentCountPassedFrustumCull))
+
+        debug_bin_overlay = imgui.slider_float(" Bin Overlay", self.debug_bin_overlay, 0, 1, "%.2f")
+        self.debug_bin_overlay = debug_bin_overlay
 
         imgui.end()
 

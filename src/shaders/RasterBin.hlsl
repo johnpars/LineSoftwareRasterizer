@@ -55,10 +55,12 @@ bool SegmentsIntersectsBin(uint x, uint y, float2 p0, float2 p1)
 
     // Re-use the coverage computation to factor in strand width.
     float unused;
-    float d = DistanceToSegmentAndBarycentricCoordinate(center.xy, p0.xy, p1.xy, unused);
+    float d = DistanceToSegmentAndTValue(center.xy, p0.xy, p1.xy, unused);
 
     // Compute the segment coverage provided by the segment distance.
-    float coverage = 1 - smoothstep(0.0, 0.02, d);
+    // TODO: Looks like screen params not updated when going from big -> small window size.
+    const uint pad = 2;
+    float coverage = 1 - step((_TileSize + pad) / _ScreenParams.y, d);
 
     return any(coverage);
 }
@@ -100,6 +102,9 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
 
     // Pick a segment from the ring buffer.
     const SegmentRecord segment = _SegmentRecordBuffer[s];
+
+    // TODO: This might be interesting: https://www.iquilezles.org/www/articles/bezierbbox/bezierbbox.htm
+    // Could potentially reduce the search domain and reduce the count of per-bin bezier coverage evaluations.
 
     // Determine the AABB of the segment.
     AABB aabb;

@@ -41,6 +41,8 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
+    const float segmentWidth = 3 / _ScreenParams.y;
+
     // Load the tile data into LDS.
     if (groupIndex == 0)
     {
@@ -73,24 +75,25 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
         float3 p0 = v0.positionCS.xyz * rcp(v0.positionCS.w);
         float3 p1 = v1.positionCS.xyz * rcp(v1.positionCS.w);
 
-        // Compute the segment coverage and barycenteric coord.
-        float coord;
-        float distance = DistanceToSegmentAndBarycentricCoordinate(UVh, p0.xy, p1.xy, coord);
+        // Compute the segment coverage and 'barycentric' coord.
+        float t;
+        float distance = DistanceToSegmentAndTValue(UVh, p0.xy, p1.xy, t);
 
         // Compute the segment coverage provided by the segment distance.
-        float coverage = 1 - smoothstep(0.0, 0.0012, distance);
+        float coverage = 1 - smoothstep(0.0, segmentWidth, distance);
 
         float2 coords = float2(
-            coord,
-            1 - coord
+            t,
+            1 - t
         );
 
         // Interpolate Vertex Data
-        const float z = INTERP(coords, p0.z, p1.z);
+        const float z  = INTERP(coords, p0.z, p1.z);
+        const float texCoord = INTERP(coords, v0.texCoord, v1.texCoord);
 
         if (coverage > 0 && z > Z)
         {
-            result = float3(coords, 1) * coverage;
+            result = lerp(float3(0.8, 0.1, 0.3), float3(0.8, 0.4, 0.0), texCoord) * coverage;
             Z = z;
         }
     }

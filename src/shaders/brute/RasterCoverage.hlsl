@@ -77,8 +77,8 @@ void RasterCoverage(uint3 dti : SV_DispatchThreadID)
             float2 p0 = v0.positionCS.xy / v0.positionCS.w;
             float2 p1 = v1.positionCS.xy / v1.positionCS.w;
 
-            float barycenter;
-            const float distance = DistanceToSegmentAndBarycentricCoordinate(center, p0, p1, barycenter);
+            float t;
+            const float distance = DistanceToSegmentAndTValue(center, p0, p1, t);
 
             // Compute the segment coverage provided by the segment distance.
             float coverage = 1 - smoothstep(0.0, 0.002, distance);
@@ -87,8 +87,8 @@ void RasterCoverage(uint3 dti : SV_DispatchThreadID)
                 continue;
 
             float2 b = float2(
-                barycenter,
-                1 - barycenter
+                t,
+                1 - t
             );
 
             const float z = INTERP(b, v0.positionCS.z, v1.positionCS.z);

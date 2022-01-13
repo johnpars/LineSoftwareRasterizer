@@ -55,7 +55,7 @@ class Debug:
         )
 
     @staticmethod
-    def draw_bin_counts(cmd, rasterizer, context):
+    def draw_bin_counts(cmd, rasterizer, context, opacity):
         cmd.begin_marker("DebugSegmentsPerTile")
 
         group_dim_y = math.ceil(context.h / 16)
@@ -66,7 +66,8 @@ class Debug:
 
             constants=[
                 group_dim_x,
-                group_dim_y
+                group_dim_y,
+                opacity
             ],
 
             inputs=[

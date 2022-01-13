@@ -76,11 +76,13 @@ def on_render(render_args: gpu.RenderArgs):
     )
 
     # Debug draw bin counts
-    # debug.draw_bin_counts(
-    #     cmd,
-    #     rasterizer,
-    #     context
-    # )
+    if editor.debug_bin_overlay > 0:
+        debug.draw_bin_counts(
+            cmd,
+            rasterizer,
+            context,
+            editor.debug_bin_overlay
+        )
 
     editor.render(stats, render_args.imgui)
 

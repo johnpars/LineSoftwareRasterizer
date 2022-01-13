@@ -35,7 +35,7 @@ RWStructuredBuffer<SegmentData>   _SegmentDataBuffer   : register(u2);
 #define MIN_Y -1
 #define MAX_Y +1
 
-#define NUM_WAVE 8
+#define NUM_WAVE 16
 
 #define CULL_SEGMENT(i) _SegmentCountBuffer.Store(4 * i, 0)
 #define PASS_SEGMENT(i) _SegmentCountBuffer.Store(4 * i, 1)

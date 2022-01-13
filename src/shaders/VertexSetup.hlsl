@@ -54,6 +54,7 @@ VertexOutput Vert(VertexInput input)
     VertexOutput output;
     {
         output.positionCS = mul(mul(float4(strandData.strandPositionOS, 1.0), _MatrixV), _MatrixP);
+        output.texCoord   = input.vertexUV;
     }
     return output;
 }

@@ -3,6 +3,7 @@
 cbuffer SegmentsPerTileConstants : register(b0)
 {
     uint2 GroupDim;
+    float Opacity;
 };
 
 Buffer<uint>        _TileSegmentCountBuffer : register(t1);
@@ -23,6 +24,6 @@ void SegmentsPerTile(uint3 dispatchThreadID : SV_DispatchThreadID,
     float4 base = _OutputTarget[dispatchThreadID.xy];
     float4 heat = OverlayHeatMap(samplePos, uint2(16, 16), tileValue, 20000, 1.0);
 
-    const float a = 0.5;
+    const float a = Opacity;
     _OutputTarget[dispatchThreadID.xy] = float4((base.rgb * (1 - a)) + (heat.rgb * a), 1);
 }
