@@ -17,6 +17,9 @@ s_build_work_queue      = gpu.Shader(file="WorkQueue.hlsl",    name="WorkQueue",
 class RasterizerBinned(Rasterizer.Rasterizer):
     def __init__(self, w, h):
 
+        self.bin_w = math.ceil(w / Budgets.TILE_SIZE_BIN)
+        self.bin_h = math.ceil(h / Budgets.TILE_SIZE_BIN)
+
         # Resources
         self.b_bin_records = None
         self.b_bin_records_counter = None
@@ -28,6 +31,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
 
         # Constant buffers
         self.cb_raster_bin = None
+        self.cb_raster_fine = None
 
         # Will invoke the creation of resources
         super().__init__(w, h)
@@ -74,22 +78,31 @@ class RasterizerBinned(Rasterizer.Rasterizer):
             is_constant_buffer=True
         )
 
+        self.cb_raster_fine = gpu.Buffer(
+            name="ConstantBufferRasterFine",
+            type=gpu.BufferType.Structured,
+            stride=(4 * 4) * 2,
+            element_count=1,
+            is_constant_buffer=True
+        )
+
     def update_resolution_dependent_buffers(self, w, h):
         if w <= self.mW and h <= self.mH:
             return
 
-        super().update_resolution_dependent_buffers(w, h)
+        self.bin_w = math.ceil(w / Budgets.TILE_SIZE_BIN)
+        self.bin_h = math.ceil(h / Budgets.TILE_SIZE_BIN)
 
-        bin_w, bin_h = (math.ceil(w / Budgets.TILE_SIZE_BIN), math.ceil(h / Budgets.TILE_SIZE_BIN))
+        super().update_resolution_dependent_buffers(w, h)
 
         self.b_bin_counters = gpu.Buffer(
             name="BinCountBuffer",
             type=gpu.BufferType.Standard,
             format=gpu.Format.R32_UINT,
-            element_count=bin_w * bin_h
+            element_count=self.bin_w * self.bin_h
         )
 
-        self.b_prefix_sum_args = PrefixSum.allocate_args(bin_w * bin_h)
+        self.b_prefix_sum_args = PrefixSum.allocate_args(self.bin_w * self.bin_h)
 
     def update_constant_buffers(self, context):
         context.cmd.begin_marker("Update Constant Buffers")
@@ -102,11 +115,22 @@ class RasterizerBinned(Rasterizer.Rasterizer):
                 context.w,
                 context.h,
                 Budgets.TILE_SIZE_BIN,
-                math.ceil(context.w / Budgets.TILE_SIZE_BIN),
-                math.ceil(context.h / Budgets.TILE_SIZE_BIN),
+                self.bin_w,
+                self.bin_h,
 
             ], dtype='f'),
             destination=self.cb_raster_bin
+        )
+
+        context.cmd.upload_resource(
+            source=np.array([
+                context.w,
+                context.h,
+                Budgets.TILE_SIZE_BIN,
+                self.bin_w,
+                self.bin_h,
+            ], dtype='f'),
+            destination=self.cb_raster_fine
         )
 
         context.cmd.end_marker()
@@ -127,7 +151,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         Utility.clear_buffer(
             context.cmd,
             0,
-            math.ceil(context.w / Budgets.TILE_SIZE_BIN) * math.ceil(context.h / Budgets.TILE_SIZE_BIN),
+            self.bin_w * self.bin_h,
             self.b_bin_counters,
             Utility.ClearMode.UINT
         )
@@ -164,15 +188,13 @@ class RasterizerBinned(Rasterizer.Rasterizer):
 
         context.cmd.begin_marker("BuildWorkQueue")
 
-        bin_w, bin_h = (math.ceil(context.w / Budgets.TILE_SIZE_BIN), math.ceil(context.h / Budgets.TILE_SIZE_BIN))
-
         # 1) Generate offset indices into the global work queue, by performing a prefix sum on the bin counters.
         self.b_bin_offsets = PrefixSum.run(
             context.cmd,
             self.b_bin_counters,
             self.b_prefix_sum_args,
             True,
-            bin_w * bin_h
+            self.bin_w * self.bin_h
         )
 
         # 2) Derive a dispatch launch size from the amount of bin records.
@@ -210,13 +232,23 @@ class RasterizerBinned(Rasterizer.Rasterizer):
             shader=s_raster_fine,
 
             constants=[
+                self.cb_raster_fine
             ],
 
             inputs=[
-                self.b_segment_output,
+                self.b_work_queue,
+                self.b_bin_offsets,
+                self.b_bin_counters,
+                self.b_segment_data,
+                self.b_vertex_output
             ],
 
-            x=math.ceil(context.segment_count / 1024)
+            outputs=[
+                context.target
+            ],
+
+            x=self.bin_w,
+            y=self.bin_h
         )
 
         context.cmd.end_marker()
@@ -234,6 +266,6 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         self.build_work_queue(context)
 
         # 4) Fine Stage
-        pass
+        self.raster_fine(context)
 
         context.cmd.end_marker()

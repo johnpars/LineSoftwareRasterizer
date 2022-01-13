@@ -2,11 +2,11 @@
 
 // Inputs
 // ----------------------------------------
-cbuffer ConstantsSetup : register(b0)
+cbuffer Constants : register(b0)
 {
     float4 _Params0;
     float4 _Params1;
-}
+};
 
 ByteAddressBuffer               _SegmentOutputBuffer : register(t0);
 StructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(t1);

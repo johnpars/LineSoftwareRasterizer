@@ -17,7 +17,7 @@ initial_height = 720
 device_memory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
-strands = StrandFactory.build_from_asset("single_hair")
+strands = StrandFactory.build_from_asset("bunny")
 
 # Layout the initial memory and bind the position data
 device_memory.layout(strands.strand_count, strands.strand_particle_count)
@@ -76,11 +76,11 @@ def on_render(render_args: gpu.RenderArgs):
     )
 
     # Debug draw bin counts
-    debug.draw_bin_counts(
-        cmd,
-        rasterizer,
-        context
-    )
+    # debug.draw_bin_counts(
+    #     cmd,
+    #     rasterizer,
+    #     context
+    # )
 
     editor.render(stats, render_args.imgui)
 
