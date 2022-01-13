@@ -1,4 +1,5 @@
 #include "RasterCommon.hlsl"
+#include "debug/DebugUtility.hlsl"
 
 // Input
 cbuffer Constants : register(b0)
@@ -33,6 +34,30 @@ RWTexture2D<float4> _OutputTarget : register(u0);
 groupshared uint g_BinOffset;
 groupshared uint g_BinCount;
 
+// Utility
+
+void LoadControlPoints(uint segmentIndex, inout float2 controlPoints[4])
+{
+    // Find the start segment index
+    const uint segmentStart = 3 * floor(segmentIndex / 3);
+
+    // Load the segments that contain all control points
+    const SegmentData segment0 = _SegmentDataBuffer[segmentStart + 0];
+    const SegmentData segment1 = _SegmentDataBuffer[segmentStart + 2];
+
+    // Load the control points from vertex buffer.
+    const VertexOutput vA = _VertexOutputBuffer[segment0.vi0];
+    const VertexOutput vB = _VertexOutputBuffer[segment0.vi1];
+    const VertexOutput vC = _VertexOutputBuffer[segment1.vi0];
+    const VertexOutput vD = _VertexOutputBuffer[segment1.vi1];
+
+    // Transform clip space -> NDC.
+    controlPoints[0] = vA.positionCS.xy * rcp(vA.positionCS.w);
+    controlPoints[1] = vB.positionCS.xy * rcp(vB.positionCS.w);
+    controlPoints[2] = vC.positionCS.xy * rcp(vC.positionCS.w);
+    controlPoints[3] = vD.positionCS.xy * rcp(vD.positionCS.w);
+}
+
 // Kernel
 [numthreads(16, 16, 1)]
 void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex)
@@ -41,7 +66,7 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
-    const float segmentWidth = 3 / _ScreenParams.y;
+    const float segmentWidth = 2 / _ScreenParams.y;
 
     // Load the tile data into LDS.
     if (groupIndex == 0)
@@ -76,8 +101,16 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
         float3 p1 = v1.positionCS.xyz * rcp(v1.positionCS.w);
 
         // Compute the segment coverage and 'barycentric' coord.
+#ifndef EVALUATE_CURVE
         float t;
         float distance = DistanceToSegmentAndTValue(UVh, p0.xy, p1.xy, t);
+#else
+        float2 controlPoints[4];
+        LoadControlPoints(segmentIndex, controlPoints);
+
+        float t;
+        float distance = DistanceToCubicBezierAndTValue(UVh, controlPoints, t);
+#endif
 
         // Compute the segment coverage provided by the segment distance.
         float coverage = 1 - smoothstep(0.0, segmentWidth, distance);
@@ -93,7 +126,8 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
 
         if (coverage > 0 && z > Z)
         {
-            result = lerp(float3(0.8, 0.1, 0.3), float3(0.8, 0.4, 0.0), texCoord) * coverage;
+            // result = lerp(float3(0.8, 0.1, 0.3), float3(0.8, 0.4, 0.0), texCoord) * coverage;
+            result = ColorCycle(segmentIndex % 12, 12) * coverage;
             Z = z;
         }
     }

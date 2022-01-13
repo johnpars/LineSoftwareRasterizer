@@ -9,7 +9,9 @@ from src import Rasterizer
 
 # Stage Kernels
 s_raster_bin            = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",     main_function="RasterBin")
+s_raster_bin_tes        = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",     main_function="RasterBin", defines=["EVALUATE_CURVE"])
 s_raster_fine           = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",    main_function="RasterFine")
+s_raster_fine_tes       = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",    main_function="RasterFine", defines=["EVALUATE_CURVE"])
 s_build_work_queue_args = gpu.Shader(file="WorkQueue.hlsl",    name="WorkQueueArgs", main_function="BuildWorkQueueArgs")
 s_build_work_queue      = gpu.Shader(file="WorkQueue.hlsl",    name="WorkQueue",     main_function="BuildWorkQueue")
 
@@ -162,7 +164,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         context.cmd.begin_marker("BinPass")
 
         context.cmd.dispatch(
-            shader=s_raster_bin,
+            shader=s_raster_bin_tes if context.tesselation else s_raster_bin,
 
             constants=[
                 self.cb_raster_bin
@@ -229,7 +231,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         context.cmd.begin_marker("FinePass")
 
         context.cmd.dispatch(
-            shader=s_raster_fine,
+            shader=s_raster_fine_tes if context.tesselation else s_raster_fine,
 
             constants=[
                 self.cb_raster_fine

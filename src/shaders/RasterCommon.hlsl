@@ -90,7 +90,7 @@ uint WaveIndex(uint groupIndex)
 
 // Signed distance to a line segment.
 // Ref: https://www.shadertoy.com/view/3tdSDj
-float DistanceToSegmentAndTValue(float2 P, float2 A, float2 B, out float T)
+float DistanceToSegmentAndTValueSq(float2 P, float2 A, float2 B, out float T)
 {
     float2 BA = B - A;
     float2 PA = P - A;
@@ -98,12 +98,45 @@ float DistanceToSegmentAndTValue(float2 P, float2 A, float2 B, out float T)
     // Also output the 'barycentric' segment coordinate computed as a bi-product of the coverage.
     T = clamp( dot(PA, BA) / dot(BA, BA), 0.0, 1.0);
 
-    return length(PA - T * BA);
+    const float2 V = PA - T * BA;
+    return dot(V, V);
 }
 
-float DistanceToCubicBezierAndTValue(float2 P, float2 A, float2 B, float2 C, float2 D, out float T)
+float DistanceToSegmentAndTValue(float2 P, float2 A, float2 B, out float T)
 {
-    T = 0;
+    return sqrt(DistanceToSegmentAndTValueSq(P, A, B, T));
+}
 
-    return 0;
+float DistanceToCubicBezierAndTValue(float2 P, float2 controlPoints[4], out float T, uint sampleCount = 20)
+{
+    const float2 A = controlPoints[0];
+    const float2 B = controlPoints[1];
+    const float2 C = controlPoints[2];
+    const float2 D = controlPoints[3];
+
+    float2 a = A;
+
+    float2 res = float2(1e10, 0.0);
+
+    for (uint i = 1; i < sampleCount; ++i)
+    {
+        float t = (float)i / ((float)sampleCount - 1.0);
+        float s = 1 - t;
+
+        // Evaluate the cubic.
+        float2 b = (A * s * s * s) + (B * 3 * s * s * t) + (C * 3 * s * t * t) + (D * t * t * t);
+
+        // Sample the distance to this segment.
+        float unused;
+        float d = DistanceToSegmentAndTValueSq(P, a, b, unused);
+
+        if (d < res.x)
+            res = float2(d, t);
+
+        a = b;
+    }
+
+    T = res.y;
+
+    return sqrt(res.x);
 }

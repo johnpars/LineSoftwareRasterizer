@@ -46,6 +46,8 @@ class Editor:
 
         # rasterizer settings
         self.debug_bin_overlay = 0.0
+        self.tesselation = False
+        self.tesselation_sample_count = 12
 
         # ui panels states
         self.panel_camera  = False
@@ -166,6 +168,8 @@ class Editor:
 
         debug_bin_overlay = imgui.slider_float(" Bin Overlay", self.debug_bin_overlay, 0, 1, "%.2f")
         self.debug_bin_overlay = debug_bin_overlay
+
+        self.tesselation = imgui.checkbox("Tesselation", self.tesselation)
 
         imgui.end()
 

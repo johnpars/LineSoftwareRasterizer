@@ -25,9 +25,6 @@ RWBuffer<uint>                _BinCounters       : register(u2);
 #define _TileSizeSS   2.0 * float2(_TileSize.xx / _ScreenParams)
 #define _TileDim      _Params1.xy
 
-// Local
-// ----------------------------------------
-
 // Utility
 // ----------------------------------------
 bool ExitThread(uint i)
@@ -53,13 +50,37 @@ bool SegmentsIntersectsBin(uint x, uint y, float2 p0, float2 p1)
     // Get the tile's center.
     float2 center = aabbTile.Center();
 
-    // Re-use the coverage computation to factor in strand width.
     float unused;
     float d = DistanceToSegmentAndTValue(center.xy, p0.xy, p1.xy, unused);
 
     // Compute the segment coverage provided by the segment distance.
     // TODO: Looks like screen params not updated when going from big -> small window size.
     const uint pad = 2;
+    float coverage = 1 - step((_TileSize + pad) / _ScreenParams.y, d);
+
+    return any(coverage);
+}
+
+// TODO: Do this check in tiled raster space, not NDC space.
+bool CurveIntersectsBin(uint x, uint y, float2 controlPoints[4])
+{
+    float2 tileB = float2(x, y);
+    float2 tileE = tileB + 1.0;
+
+    // Construct an AABB of this tile.
+    AABB aabbTile;
+    aabbTile.min = float2(tileB * _TileSizeSS - 1.0);
+    aabbTile.max = float2(tileE * _TileSizeSS - 1.0);
+
+    // Get the tile's center.
+    float2 center = aabbTile.Center();
+
+    float unused;
+    float d = DistanceToCubicBezierAndTValue(center.xy, controlPoints, unused);
+
+    // Compute the segment coverage provided by the segment distance.
+    // TODO: Looks like screen params not updated when going from big -> small window size.
+    const uint pad = 6;
     float coverage = 1 - step((_TileSize + pad) / _ScreenParams.y, d);
 
     return any(coverage);
@@ -87,6 +108,114 @@ void RecordBin(uint binIndex, uint segmentIndex)
     _BinRecords[recordIndex] = record;
 }
 
+void LoadControlPoints(uint segmentIndex, inout float2 controlPoints[4])
+{
+    // Find the start segment index
+    const uint segmentStart = 3 * floor(segmentIndex / 3);
+
+    // Load the segments that contain all control points
+    const SegmentRecord segment0 = _SegmentRecordBuffer[segmentStart + 0];
+    const SegmentRecord segment1 = _SegmentRecordBuffer[segmentStart + 2];
+
+    // Transform clip space -> NDC.
+    controlPoints[0] = segment0.v0;
+    controlPoints[1] = segment0.v1;
+    controlPoints[2] = segment1.v0;
+    controlPoints[3] = segment1.v1;
+}
+
+void GetCurveBoundingBox(float2 controlPoints[4], out uint2 tilesB, out uint2 tilesE)
+{
+    const float2 p0 = controlPoints[0];
+    const float2 p1 = controlPoints[1];
+    const float2 p2 = controlPoints[2];
+    const float2 p3 = controlPoints[3];
+
+    // Ref: https://www.iquilezles.org/www/articles/bezierbbox/bezierbbox.htm
+
+    float2 mi = min(p0, p3);
+    float2 ma = max(p0, p3);
+
+    float2 c = -1 * p0 + 1 * p1;
+    float2 b =  1 * p0 - 2 * p1 + 1 * p2;
+    float2 a = -1 * p0 + 3 * p1 - 3 * p2 + 1 * p3;
+
+    float2 h = b * b - a * c;
+
+    if (h.x > 0.0)
+    {
+        h.x = sqrt(h.x);
+        float t = (-b.x - h.x) / a.x;
+
+        if (t > 0 && t < 1.0)
+        {
+            float s = 1.0 - t;
+            float q = s*s*s*p0.x + 3.0*s*s*t*p1.x + 3.0*s*t*t*p2.x + t*t*t*p3.x;
+            mi.x = min(mi.x, q);
+            ma.x = max(ma.x, q);
+        }
+
+        t = (-b.x + h.x) / a.x;
+
+        if (t > 0 && t < 1)
+        {
+            float s = 1.0 - t;
+            float q = s*s*s*p0.x + 3.0*s*s*t*p1.x + 3.0*s*t*t*p2.x + t*t*t*p3.x;
+            mi.x = min(mi.x,q);
+            ma.x = max(ma.x,q);
+        }
+    }
+
+    if( h.y>0.0 )
+    {
+        h.y = sqrt(h.y);
+        float t = (-b.y - h.y)/a.y;
+        if( t>0.0 && t<1.0 )
+        {
+            float s = 1.0-t;
+            float q = s*s*s*p0.y + 3.0*s*s*t*p1.y + 3.0*s*t*t*p2.y + t*t*t*p3.y;
+            mi.y = min(mi.y,q);
+            ma.y = max(ma.y,q);
+        }
+        t = (-b.y + h.y)/a.y;
+        if( t>0.0 && t<1.0 )
+        {
+            float s = 1.0-t;
+            float q = s*s*s*p0.y + 3.0*s*s*t*p1.y + 3.0*s*t*t*p2.y + t*t*t*p3.y;
+            mi.y = min(mi.y,q);
+            ma.y = max(ma.y,q);
+        }
+    }
+
+    AABB aabb;
+    aabb.min = mi;
+    aabb.max = ma;
+
+    // Transform AABB: NDC -> Tiled Raster Space.
+    tilesB = ((aabb.min.xy * 0.5 + 0.5) * _ScreenParams) / _TileSize;
+    tilesE = ((aabb.max.xy * 0.5 + 0.5) * _ScreenParams) / _TileSize;
+
+    // Clamp AABB to tiled raster space.
+    tilesB = clamp(tilesB, int2(0, 0), _TileDim - 1);
+    tilesE = clamp(tilesE, int2(0, 0), _TileDim - 1);
+}
+
+void GetSegmentBoundingBox(SegmentRecord segment, out uint2 tilesB, out uint2 tilesE)
+{
+    // Determine the AABB of the segment.
+    AABB aabb;
+    aabb.min = min(segment.v0, segment.v1);
+    aabb.max = max(segment.v0, segment.v1);
+
+    // Transform AABB: NDC -> Tiled Raster Space.
+    tilesB = ((aabb.min.xy * 0.5 + 0.5) * _ScreenParams) / _TileSize;
+    tilesE = ((aabb.max.xy * 0.5 + 0.5) * _ScreenParams) / _TileSize;
+
+    // Clamp AABB to tiled raster space.
+    tilesB = clamp(tilesB, int2(0, 0), _TileDim - 1);
+    tilesE = clamp(tilesE, int2(0, 0), _TileDim - 1);
+}
+
 // Kernel (1 Thread Block = 1 SM/CU)
 // This kernel is responsible for distributing segment rasterization work.
 // It is the first "sync point" of continuous lines into discretized screen space tiles.
@@ -95,29 +224,28 @@ void RecordBin(uint binIndex, uint segmentIndex)
 void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
 {
     // See note: [NOTE-BINNING-PERSISTENT-THREADS]
+#if EVALUATE_CURVE
+    const uint s = dispatchThreadID.x * 3;
+#else
     const uint s = dispatchThreadID.x;
+#endif
 
     if (ExitThread(s))
         return;
 
+#if EVALUATE_CURVE
+    float2 controlPoints[4];
+    LoadControlPoints(s, controlPoints);
+
+    uint2 tilesB, tilesE;
+    GetCurveBoundingBox(controlPoints, tilesB, tilesE);
+#else
     // Pick a segment from the ring buffer.
     const SegmentRecord segment = _SegmentRecordBuffer[s];
 
-    // TODO: This might be interesting: https://www.iquilezles.org/www/articles/bezierbbox/bezierbbox.htm
-    // Could potentially reduce the search domain and reduce the count of per-bin bezier coverage evaluations.
-
-    // Determine the AABB of the segment.
-    AABB aabb;
-    aabb.min = min(segment.v0, segment.v1);
-    aabb.max = max(segment.v0, segment.v1);
-
-    // Transform AABB: NDC -> Tiled Raster Space.
-    int2 tilesB = ((aabb.min.xy * 0.5 + 0.5) * _ScreenParams) / _TileSize;
-    int2 tilesE = ((aabb.max.xy * 0.5 + 0.5) * _ScreenParams) / _TileSize;
-
-    // Clamp AABB to tiled raster space.
-    tilesB = clamp(tilesB, int2(0, 0), _TileDim - 1);
-    tilesE = clamp(tilesE, int2(0, 0), _TileDim - 1);
+    uint2 tilesB, tilesE;
+    GetSegmentBoundingBox(segment, tilesB, tilesE);
+#endif
 
     // Scalarized fast path for per-bin coverage skip. If bin coverage < 3, skip.
     const bool v_fastPath = ((tilesE.x - tilesB.x) * (tilesE.y - tilesB.y)) <= 2;
@@ -128,8 +256,11 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
     for (uint y = tilesB.y; y <= tilesE.y; ++y)
     {
         // TODO: On-chip tesselation.
-
+#if EVALUATE_CURVE
+        if (!s_fastPath && !CurveIntersectsBin(x, y, controlPoints))
+#else
         if (!s_fastPath && !SegmentsIntersectsBin(x, y, segment.v0, segment.v1))
+#endif
            continue;
 
         // Compute the flatted bin index.
