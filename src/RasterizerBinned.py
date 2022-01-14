@@ -119,6 +119,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
                 Budgets.TILE_SIZE_BIN,
                 self.bin_w,
                 self.bin_h,
+                context.tesselation_sample_count
 
             ], dtype='f'),
             destination=self.cb_raster_bin
@@ -131,6 +132,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
                 Budgets.TILE_SIZE_BIN,
                 self.bin_w,
                 self.bin_h,
+                context.tesselation_sample_count
             ], dtype='f'),
             destination=self.cb_raster_fine
         )

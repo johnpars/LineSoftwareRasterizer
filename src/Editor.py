@@ -171,6 +171,10 @@ class Editor:
 
         self.tesselation = imgui.checkbox("Tesselation", self.tesselation)
 
+        if self.tesselation:
+            curve_samples = imgui.slider_float(" Tesselation Curve Samples", self.tesselation_sample_count, 2, 20, "%.0f")
+            self.tesselation_sample_count = int(curve_samples)
+
         imgui.end()
 
     def rebuild_strands(self):

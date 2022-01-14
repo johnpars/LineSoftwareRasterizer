@@ -17,7 +17,7 @@ initial_height = 720
 device_memory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
-strands = StrandFactory.build_from_asset("bunny_2")
+strands = StrandFactory.build_from_asset("bezier_dev_multiple")
 
 # Layout the initial memory and bind the position data
 device_memory.layout(strands.strand_count, strands.strand_particle_count)
@@ -63,6 +63,7 @@ def on_render(render_args: gpu.RenderArgs):
         editor.strands.strand_count * (editor.strands.strand_particle_count - 1),
         editor.strands.strand_particle_count,
         editor.tesselation,
+        editor.tesselation_sample_count,
         output_target
     )
 

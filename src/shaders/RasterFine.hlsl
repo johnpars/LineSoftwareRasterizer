@@ -24,6 +24,7 @@ RWTexture2D<float4> _OutputTarget : register(u0);
 #define _TileSize     _Params0.z
 #define _TileSizeSS   2.0 * float2(_TileSize.xx / _ScreenParams)
 #define _TileDim      uint2(_Params0.w, _Params1.x)
+#define _CurveSamples _Params1.y
 
 // Maximum representable floating-point number
 #define FLT_MAX  3.402823466e+38
@@ -109,7 +110,7 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
         LoadControlPoints(segmentIndex, controlPoints);
 
         float t;
-        float distance = DistanceToCubicBezierAndTValue(UVh, controlPoints, t);
+        float distance = DistanceToCubicBezierAndTValue(UVh, controlPoints, t, _CurveSamples);
 #endif
 
         // Compute the segment coverage provided by the segment distance.

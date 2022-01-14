@@ -30,6 +30,7 @@ RWBuffer<uint>                _BinCounters       : register(u2);
 #define _TileSize     _Params0.w
 #define _TileSizeSS   2.0 * float2(_TileSize.xx / _ScreenParams)
 #define _TileDim      _Params1.xy
+#define _CurveSamples _Params1.z
 
 // Utility
 // ----------------------------------------
@@ -88,7 +89,7 @@ bool CurveIntersectsBin(uint x, uint y, float2 controlPoints[4])
     float2 center = aabbTile.Center();
 
     float unused;
-    float d = DistanceToCubicBezierAndTValue(center.xy, controlPoints, unused);
+    float d = DistanceToCubicBezierAndTValue(center.xy, controlPoints, unused, _CurveSamples);
 
     // Compute the segment coverage provided by the segment distance.
     // TODO: Looks like screen params not updated when going from big -> small window size.

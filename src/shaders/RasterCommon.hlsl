@@ -107,7 +107,7 @@ float DistanceToSegmentAndTValue(float2 P, float2 A, float2 B, out float T)
     return sqrt(DistanceToSegmentAndTValueSq(P, A, B, T));
 }
 
-float DistanceToCubicBezierAndTValue(float2 P, float2 controlPoints[4], out float T, uint sampleCount = 20)
+float DistanceToCubicBezierAndTValue(float2 P, float2 controlPoints[4], out float T, uint sampleCount = 10)
 {
     const float2 A = controlPoints[0];
     const float2 B = controlPoints[1];

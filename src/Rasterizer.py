@@ -23,6 +23,7 @@ class Context:
     segment_count: int
     strand_particle_count: int
     tesselation: bool
+    tesselation_sample_count: int
     target: gpu.Texture
 
 
