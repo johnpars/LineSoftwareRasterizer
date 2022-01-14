@@ -9,7 +9,13 @@ cbuffer Constants : register(b0)
 };
 
 ByteAddressBuffer               _SegmentOutputBuffer : register(t0);
+
+#if RASTER_CURVE
+StructuredBuffer<SegmentData>   _SegmentDataBuffer   : register(t1);
+StructuredBuffer<VertexOutput>  _VertexOutputBuffer  : register(t2);
+#else
 StructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(t1);
+#endif
 
 // Outputs
 // ----------------------------------------
@@ -32,8 +38,14 @@ bool ExitThread(uint i)
     if (i > _SegmentCount)
         return true;
 
+#if RASTER_CURVE
+    // Find the start segment index
+    i = 3 * floor(i / 3);
+    return !any(_SegmentOutputBuffer.Load3(4 * i));
+#else
     // Did the segment pass the clipper?
     return _SegmentOutputBuffer.Load(4 * i) == 0;
+#endif
 }
 
 // TODO: Do this check in tiled raster space, not NDC space.
@@ -110,28 +122,35 @@ void RecordBin(uint binIndex, uint segmentIndex)
 
 void LoadControlPoints(uint segmentIndex, inout float2 controlPoints[4])
 {
+#if RASTER_CURVE
     // Find the start segment index
     const uint segmentStart = 3 * floor(segmentIndex / 3);
 
     // Load the segments that contain all control points
-    const SegmentRecord segment0 = _SegmentRecordBuffer[segmentStart + 0];
-    const SegmentRecord segment1 = _SegmentRecordBuffer[segmentStart + 2];
+    const SegmentData segment0 = _SegmentDataBuffer[segmentStart + 0];
+    const SegmentData segment1 = _SegmentDataBuffer[segmentStart + 2];
+
+    // Load the control points from vertex buffer.
+    const VertexOutput vA = _VertexOutputBuffer[segment0.vi0];
+    const VertexOutput vB = _VertexOutputBuffer[segment0.vi1];
+    const VertexOutput vC = _VertexOutputBuffer[segment1.vi0];
+    const VertexOutput vD = _VertexOutputBuffer[segment1.vi1];
 
     // Transform clip space -> NDC.
-    controlPoints[0] = segment0.v0;
-    controlPoints[1] = segment0.v1;
-    controlPoints[2] = segment1.v0;
-    controlPoints[3] = segment1.v1;
+    controlPoints[0] = vA.positionCS.xy * rcp(vA.positionCS.w);
+    controlPoints[1] = vB.positionCS.xy * rcp(vB.positionCS.w);
+    controlPoints[2] = vC.positionCS.xy * rcp(vC.positionCS.w);
+    controlPoints[3] = vD.positionCS.xy * rcp(vD.positionCS.w);
+#endif
 }
 
 void GetCurveBoundingBox(float2 controlPoints[4], out uint2 tilesB, out uint2 tilesE)
 {
+    // Ref: https://www.iquilezles.org/www/articles/bezierbbox/bezierbbox.htm
     const float2 p0 = controlPoints[0];
     const float2 p1 = controlPoints[1];
     const float2 p2 = controlPoints[2];
     const float2 p3 = controlPoints[3];
-
-    // Ref: https://www.iquilezles.org/www/articles/bezierbbox/bezierbbox.htm
 
     float2 mi = min(p0, p3);
     float2 ma = max(p0, p3);
@@ -224,7 +243,7 @@ void GetSegmentBoundingBox(SegmentRecord segment, out uint2 tilesB, out uint2 ti
 void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
 {
     // See note: [NOTE-BINNING-PERSISTENT-THREADS]
-#if EVALUATE_CURVE
+#if RASTER_CURVE
     const uint s = dispatchThreadID.x * 3;
 #else
     const uint s = dispatchThreadID.x;
@@ -233,7 +252,7 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
     if (ExitThread(s))
         return;
 
-#if EVALUATE_CURVE
+#if RASTER_CURVE
     float2 controlPoints[4];
     LoadControlPoints(s, controlPoints);
 
@@ -256,7 +275,7 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
     for (uint y = tilesB.y; y <= tilesE.y; ++y)
     {
         // TODO: On-chip tesselation.
-#if EVALUATE_CURVE
+#if RASTER_CURVE
         if (!s_fastPath && !CurveIntersectsBin(x, y, controlPoints))
 #else
         if (!s_fastPath && !SegmentsIntersectsBin(x, y, segment.v0, segment.v1))

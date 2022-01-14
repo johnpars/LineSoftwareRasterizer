@@ -59,8 +59,8 @@ class Debug:
     def draw_bin_counts(cmd, rasterizer, context, opacity):
         cmd.begin_marker("DebugSegmentsPerTile")
 
-        group_dim_y = math.ceil(context.h / 16)
-        group_dim_x = math.ceil(context.w / 16)
+        group_dim_y = math.ceil(context.h / Budgets.TILE_SIZE_BIN)
+        group_dim_x = math.ceil(context.w / Budgets.TILE_SIZE_BIN)
 
         cmd.dispatch(
             shader=s_segments_per_tile,
@@ -79,8 +79,8 @@ class Debug:
             outputs=context.target,
             samplers=SamplerFont,
 
-            x=math.ceil(context.w / 16),
-            y=math.ceil(context.h / 16),
+            x=math.ceil(context.w / Budgets.TILE_SIZE_BIN),
+            y=math.ceil(context.h / Budgets.TILE_SIZE_BIN),
             z=1
         )
 

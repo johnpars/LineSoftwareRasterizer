@@ -101,7 +101,7 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
         float3 p1 = v1.positionCS.xyz * rcp(v1.positionCS.w);
 
         // Compute the segment coverage and 'barycentric' coord.
-#ifndef EVALUATE_CURVE
+#ifndef RASTER_CURVE
         float t;
         float distance = DistanceToSegmentAndTValue(UVh, p0.xy, p1.xy, t);
 #else
