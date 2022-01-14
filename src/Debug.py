@@ -5,6 +5,7 @@ import numpy as np
 from dataclasses import dataclass
 from src import Rasterizer
 from src import Utility
+from src import Budgets
 
 TextureFont = gpu.Texture(file="DebugFont.jpg")
 SamplerFont = gpu.Sampler(filter_type=gpu.FilterType.Linear)
@@ -37,7 +38,7 @@ class Debug:
         )
 
         cmd.dispatch(
-            x=math.ceil(context.segment_count / 64),
+            x=math.ceil(context.segment_count / Budgets.NUM_LANE_PER_WAVE),
             inputs=[
                 rasterizer.b_segment_output
             ],

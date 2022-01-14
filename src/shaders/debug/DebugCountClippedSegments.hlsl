@@ -1,7 +1,7 @@
 ByteAddressBuffer _SegmentCountBuffer : register(t0);
 RWBuffer<uint>    _FrustumCulledCount : register(u0);
 
-[numthreads(64, 1, 1)]
+[numthreads(32, 1, 1)]
 void CountClippedSegments(uint3 dispatchThreadID : SV_DispatchThreadID,
                           uint groupIndex : SV_GroupIndex)
 {

@@ -66,7 +66,7 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
-    const float segmentWidth = 2 / _ScreenParams.y;
+    const float segmentWidth = 1.5 / _ScreenParams.y;
 
     // Load the tile data into LDS.
     if (groupIndex == 0)
@@ -126,8 +126,8 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
 
         if (coverage > 0 && z > Z)
         {
-            // result = lerp(float3(0.8, 0.1, 0.3), float3(0.8, 0.4, 0.0), texCoord) * coverage;
-            result = ColorCycle(segmentIndex % 12, 12) * coverage;
+            result = lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage;
+            // result = ColorCycle(segmentIndex % 12, 12) * coverage;
             Z = z;
         }
     }
