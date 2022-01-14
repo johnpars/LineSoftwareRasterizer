@@ -41,6 +41,7 @@ class Editor:
 
         # strand generation settings
         self.generation_settings = StrandFactory.Settings()
+        self.strands_asset_name = ""
         self.device_memory = deviceMemory
         self.strands = strands
 
@@ -51,8 +52,7 @@ class Editor:
 
         # ui panels states
         self.panel_camera  = False
-        self.panel_strands = False
-        self.panel_stats   = True
+        self.panel_raster  = True
 
     @property
     def camera(self):
@@ -104,8 +104,7 @@ class Editor:
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("Tools"):
                 self.panel_camera = True if imgui.menu_item(label="Camera") else self.panel_camera
-                self.panel_strands = True if imgui.menu_item(label="Strand Generation") else self.panel_strands
-                self.panel_stats = True if imgui.menu_item(label="Rasterizer Stats") else self.panel_stats
+                self.panel_raster = True if imgui.menu_item(label="Rasterizer") else self.panel_raster
                 imgui.end_menu()
             imgui.end_main_menu_bar()
 
@@ -134,66 +133,44 @@ class Editor:
                 cam_transform.rotation = Vector.q_from_angle_axis(0, Vector.float3(1, 0, 0))
         imgui.end()
 
-    def render_strand_bar(self, imgui: g.ImguiBuilder):
-        if not self.panel_strands:
+    def render_raster_bar(self, imgui: g.ImguiBuilder, stats: Debug.Stats):
+        if not self.panel_raster:
             return
 
-        self.panel_strands = imgui.begin("Strand Generation", self.panel_strands)
+        self.panel_raster = imgui.begin("Settings", self.panel_raster)
 
-        # TODO: Add more imgui bindings, can't do int slider or toggle, etc.
-        self.generation_settings.strand_count = imgui.slider_float(label="Strand Count",
-                                                                   v=self.generation_settings.strand_count,
-                                                                   v_min=1.0, v_max=2048.0)
-        self.generation_settings.strand_particle_count = imgui.slider_float(label="Strand Particle Count",
-                                                                            v=self.generation_settings.strand_particle_count,
-                                                                            v_min=2.0, v_max=64.0)
-        self.generation_settings.strand_length = imgui.slider_float(label="Strand Length",
-                                                                    v=self.generation_settings.strand_length,
-                                                                    v_min=0.001, v_max=5.0)
+        if imgui.collapsing_header("Strands"):
+            asset = imgui.input_text("Asset", self.strands_asset_name)
+            self.strands_asset_name = asset
+            imgui.same_line()
+            if imgui.button("Load"):
+                self.rebuild_strands_asset(self.strands_asset_name)
 
-        if imgui.button("BUILD"):
-            self.rebuild_strands()
+        if imgui.collapsing_header("Stats"):
+            imgui.text("Total Segments:               " + str(stats.segmentCount))
+            imgui.text("Frustum Culled (Pass / Fail): {} / {}".format(stats.segmentCountPassedFrustumCull,
+                                                                      stats.segmentCount - stats.segmentCountPassedFrustumCull))
+            debug_bin_overlay = imgui.slider_float(" Bin Overlay", self.debug_bin_overlay, 0, 1, "%.2f")
+            self.debug_bin_overlay = debug_bin_overlay
+
+        if imgui.collapsing_header("Tesselation"):
+            self.tesselation = imgui.checkbox("Enable", self.tesselation)
+
+            if self.tesselation:
+                curve_samples = imgui.slider_float(" Samples", self.tesselation_sample_count, 2, 20, "%.0f")
+                self.tesselation_sample_count = int(curve_samples)
 
         imgui.end()
 
-    def render_stats_bar(self, imgui: g.ImguiBuilder, stats: Debug.Stats):
-        if not self.panel_stats:
-            return
+    def rebuild_strands_asset(self, asset):
+        # Create a default strand
+        self.strands = StrandFactory.build_from_asset(asset)
 
-        self.panel_stats = imgui.begin("Rasterizer Stats", self.panel_stats)
-
-        imgui.text("Total Segments:               " + str(stats.segmentCount))
-        imgui.text("Frustum Culled (Pass / Fail): {} / {}".format(stats.segmentCountPassedFrustumCull,
-                                                                  stats.segmentCount - stats.segmentCountPassedFrustumCull))
-
-        debug_bin_overlay = imgui.slider_float(" Bin Overlay", self.debug_bin_overlay, 0, 1, "%.2f")
-        self.debug_bin_overlay = debug_bin_overlay
-
-        self.tesselation = imgui.checkbox("Tesselation", self.tesselation)
-
-        if self.tesselation:
-            curve_samples = imgui.slider_float(" Tesselation Curve Samples", self.tesselation_sample_count, 2, 20, "%.0f")
-            self.tesselation_sample_count = int(curve_samples)
-
-        imgui.end()
-
-    def rebuild_strands(self):
-        # Need to manually round this due to lack of integer imgui bindings
-        self.generation_settings.strand_count = int(round(self.generation_settings.strand_count))
-        self.generation_settings.strand_particle_count = int(round(self.generation_settings.strand_particle_count))
-
-        # Produce a strand group based on the input settings...
-        self.strands = StrandFactory.build_procedural(self.generation_settings)
-        self.strands.strand_count = self.generation_settings.strand_count
-        self.strands.strand_particle_count = self.generation_settings.strand_particle_count
-
-        # ...and inform the device to reformat the buffers
-        # (position data will be bound later in a separate compute buffer, to similarly resemble the full data model).
+        # Layout the initial memory and bind the position data
         self.device_memory.layout(self.strands.strand_count, self.strands.strand_particle_count)
         self.device_memory.bind_strand_position_data(self.strands.particle_positions)
 
     def render(self, stats: Debug.Stats, imgui: g.ImguiBuilder):
         self.render_main_menu_bar(imgui)
         self.render_camera_bar(imgui)
-        self.render_strand_bar(imgui)
-        self.render_stats_bar(imgui, stats)
+        self.render_raster_bar(imgui, stats)
