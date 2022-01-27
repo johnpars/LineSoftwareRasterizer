@@ -110,14 +110,14 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         self.b_bin_min_z = gpu.Buffer(
             name="BinMinZ",
             type=gpu.BufferType.Standard,
-            format=gpu.Format.R32_SINT,
+            format=gpu.Format.R32_UINT,
             element_count=self.bin_w * self.bin_h
         )
 
         self.b_bin_max_z = gpu.Buffer(
             name="BinMaxZ",
             type=gpu.BufferType.Standard,
-            format=gpu.Format.R32_SINT,
+            format=gpu.Format.R32_UINT,
             element_count=self.bin_w * self.bin_h
         )
 

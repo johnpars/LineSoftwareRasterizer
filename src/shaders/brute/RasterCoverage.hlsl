@@ -21,8 +21,6 @@ RWStructuredBuffer<FragmentData> _FragmentDataBuffer : register(u2);
 #define _SegmentCount _Params0.x
 #define _ScreenParams _Params0.yz
 
-#define INTERP(coords, a, b) coords.y * a + coords.x * b
-
 uint GetFlattenedPixelIndex(uint x, uint y)
 {
     return (y * _ScreenParams.x) + x;
@@ -104,7 +102,7 @@ void RasterCoverage(uint3 dti : SV_DispatchThreadID)
 
             FragmentData data;
             {
-                data.color = float4(ColorCycle(i, _SegmentCount), 0.2 * coverage);
+                data.color = float4(ColorCycle(i, _SegmentCount), 0.9 * coverage);
                 data.depth = d;
                 data.next  = next;
             }

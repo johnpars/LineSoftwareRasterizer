@@ -22,7 +22,7 @@
 // Maximum representable floating-point number
 #define FLT_MAX  3.402823466e+38
 
-#define INTERP(coords, a, b) coords.y * a + coords.x * b
+#define INTERP(coords, a, b) (coords.y * a) + (coords.x * b)
 
 // Structures
 // -----------------------------------------------------

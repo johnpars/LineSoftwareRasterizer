@@ -65,7 +65,7 @@ bool SegmentsIntersectsBin(uint x, uint y, float2 p0, float2 p1, inout float z)
 
     // Compute the segment coverage provided by the segment distance.
     // TODO: Looks like screen params not updated when going from big -> small window size.
-    const uint pad = 2;
+    const uint pad = 10;
     float coverage = 1 - step((_TileSize + pad) / _ScreenParams.y, d);
 
     return any(coverage);
@@ -121,9 +121,8 @@ void RecordBin(uint binIndex, uint segmentIndex, float t)
         );
 
         const float z = INTERP(coords, z0, z1);
-
-        InterlockedMin(_BinMinZ[binIndex], asint(z));
-        InterlockedMax(_BinMaxZ[binIndex], asint(z));
+        InterlockedMin(_BinMinZ[binIndex], asuint(z));
+        InterlockedMax(_BinMaxZ[binIndex], asuint(z));
     }
 
     // Compute the next valid index in the record buffer.

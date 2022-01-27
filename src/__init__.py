@@ -7,7 +7,6 @@ print ("Devices:")
 
 gpu.set_current_adapter(
     index=1,
-    # shader_model=gpu.ShaderModel.Sm6_4,
     dump_shader_pdbs=True
 )
 

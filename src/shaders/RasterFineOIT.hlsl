@@ -29,7 +29,8 @@ RWTexture2D<float4> _OutputTarget : register(u0);
 #define _TileDim      uint2(_Params0.w, _Params1.x)
 #define _CurveSamples _Params1.y
 
-#define NUM_SLICES 64
+// Hardcoded for 32 slices due to the slice mask.
+#define NUM_SLICES 32
 
 // Local
 groupshared uint g_BinOffset;
@@ -41,8 +42,18 @@ groupshared uint g_BinMaxZ;
 
 uint ComputeSliceIndex(float binStart, float binEnd, float z)
 {
-    const float fraction = (z - binStart) / (binEnd - binStart);
-    return clamp(round(fraction * NUM_SLICES), 0, 64);
+    const float fraction = (z - binStart) * rcp(binEnd - binStart);
+    return round(fraction) * NUM_SLICES; // clamp(round(fraction) * NUM_SLICES, 0, NUM_SLICES - 1);
+}
+
+bool IsSliceEmpty(uint sliceMask, uint sliceIndex)
+{
+    return (sliceMask & (1u << sliceIndex)) == 0;
+}
+
+void WriteSlice(uint sliceIndex, inout uint sliceMask)
+{
+    sliceMask |= 1u << sliceIndex;
 }
 
 // Kernel
@@ -53,7 +64,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
-    const float segmentWidth = 3.0 / _ScreenParams.y;
+    const float segmentWidth = 4.0 / _ScreenParams.y;
 
     // Load the tile data into LDS.
     if (groupIndex == 0)
@@ -69,16 +80,21 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     const uint segmentCount = g_BinCount;
     const uint binOffset    = g_BinOffset;
 
-    const float binMinZ      = asfloat(g_BinMinZ);
-    const float binMaxZ      = asfloat(g_BinMaxZ);
+    const float binMinZ = asfloat(g_BinMinZ);
+    const float binMaxZ = asfloat(g_BinMaxZ);
 
-    int sliceBuffer[NUM_SLICES];
+    if (segmentCount == 0)
+        return;
 
-    for (uint k = 0; k < NUM_SLICES; k++)
-        sliceBuffer[k] = -1;
+    // Slice and fragment buffers.
+    uint   slices    [NUM_SLICES];
+    float4 fragments [NUM_SLICES];
 
+    // Maintain a bit mask to check for slice buffer occupants.
+    uint sliceMask = 0;
+
+    // Track a fragment counter for new entries to the fragment buffer.
     uint fragmentCounter = 0;
-    float4 fragments[NUM_SLICES];
 
     for (uint s = 0; s < segmentCount; ++s)
     {
@@ -112,46 +128,68 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
             1 - t
         );
 
-        // Interpolate Vertex Data
+        // Interpolate vertex data.
         const float z = INTERP(coords, p0.z, p1.z);
 
-        // Compute the slice index for this depth value and point to the fragment index.
-        const uint sliceIndex = ComputeSliceIndex(binMaxZ, binMinZ, z);
-
+        // Invoke fragment shader / sample and blend offscreen shading.
         float4 fragment = float4(ColorCycle(floor(segmentIndex / 10), 100) * coverage, coverage);
 
-        if (sliceBuffer[sliceIndex] < 0)
+        // Compute the slice index for this depth value.
+        const uint sliceIndex = ComputeSliceIndex(binMinZ, binMaxZ, z);
+
+        if (!IsSliceEmpty(sliceMask, sliceIndex))
         {
-            fragments[fragmentCounter] = fragment;
-            sliceBuffer[sliceIndex] = fragmentCounter;
-            fragmentCounter++;
+            // This slice is already occupied.
+            const uint sliceFragmentIndex = slices[sliceIndex];
+
+            float4 sliceFragment = fragments[sliceFragmentIndex];
+            {
+                // Alpha blend with the current fragment in the slice.
+                sliceFragment += (fragment * (1 - sliceFragment.a));
+            }
+
+            fragments[sliceFragmentIndex] = sliceFragment;
+
+            // Proceed with the next segment.
+            continue;
         }
-        else
-        {
-            // This slice is already occupied. Alpha blend with the current fragment.
-            float4 slicFragment = fragments[sliceBuffer[sliceIndex]];
-            float4 blenFragment = slicFragment + (fragment * (1 - slicFragment.a));
-            fragments[sliceBuffer[sliceIndex]] = blenFragment;
-        }
+
+        // First update the slice mask.
+        WriteSlice(sliceIndex, sliceMask);
+
+        // Make the new fragment entry.
+        fragments[fragmentCounter] = fragment;
+
+        // Point to it in the slice buffer.
+        slices[sliceIndex] = fragmentCounter;
+
+        // Iterate the counter for future entries.
+        fragmentCounter++;
     }
 
-    float3 result = 0;
-    float transmittance = 1;
+    float4 pixelColorAndAlpha = float4(0, 0, 0, 1);
 
-    // Resolve the per-pixel transmittance function.
-    for (int i = 0; i < fragmentCounter; i++)
+    // Scan the slices in order to resolve the per-pixel transmittance function.
+    uint f, i = 0;
+    for (; f < fragmentCounter && i < NUM_SLICES; ++i)
     {
-        const int fragmentIndex = sliceBuffer[i];
-
         // Skip empty slices.
-        if (fragmentIndex < 0)
+        if (IsSliceEmpty(sliceMask, f))
             continue;
 
-        const float4 color = fragments[fragmentIndex];
+        // Fetch the slice pointer to the fragment.
+        const int fragmentIndex = slices[f];
 
-        result.rgb = result.rgb + transmittance * color.rgb;
-        transmittance *= 1 - color.a;
+        // Grab the fragment
+        const float4 fragmentColorAndAlpha = fragments[fragmentIndex];
+
+        // Ordered transmittance function.
+        pixelColorAndAlpha.rgb += fragmentColorAndAlpha.rgb * pixelColorAndAlpha.a;
+        pixelColorAndAlpha.a   *= 1 - fragmentColorAndAlpha.a;
+
+        // Only iterate if this was a non-empty slice.
+        f++;
     }
 
-    _OutputTarget[dispatchThreadID.xy] = float4(result, transmittance);
+    _OutputTarget[dispatchThreadID.xy] = pixelColorAndAlpha;
 }
