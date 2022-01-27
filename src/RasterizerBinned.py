@@ -179,7 +179,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
 
         Utility.clear_buffer(
             context.cmd,
-            2147483647, # Max int
+            (1 << 31) - 1, # Max int
             self.bin_w * self.bin_h,
             self.b_bin_min_z,
             Utility.ClearMode.UINT

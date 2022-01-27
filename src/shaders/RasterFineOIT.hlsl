@@ -40,10 +40,23 @@ groupshared uint g_BinMaxZ;
 
 // Utility
 
+uint GetLeastSignificantBit(uint mask)
+{
+    // Ref: https://graphics.stanford.edu/~seander/bithacks.html
+    static const int MultiplyDeBruijnBitPosition[32] =
+    {
+          0, 1, 28, 2, 29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4, 8,
+          31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9
+    };
+
+    // Find the least significant set bit in the mask.
+    return MultiplyDeBruijnBitPosition[(((mask & -mask) * 0x077CB531U)) >> 27];
+}
+
 uint ComputeSliceIndex(float binStart, float binEnd, float z)
 {
     const float fraction = (z - binStart) * rcp(binEnd - binStart);
-    return round(fraction) * NUM_SLICES; // clamp(round(fraction) * NUM_SLICES, 0, NUM_SLICES - 1);
+    return clamp(fraction * NUM_SLICES, 0, NUM_SLICES - 1);
 }
 
 bool IsSliceEmpty(uint sliceMask, uint sliceIndex)
@@ -64,7 +77,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
-    const float segmentWidth = 4.0 / _ScreenParams.y;
+    const float segmentWidth = 1.5 / _ScreenParams.y;
 
     // Load the tile data into LDS.
     if (groupIndex == 0)
@@ -123,6 +136,8 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         if (!coverage)
             continue;
 
+        coverage *= 0.25;
+
         float2 coords = float2(
             t,
             1 - t
@@ -130,12 +145,14 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
 
         // Interpolate vertex data.
         const float z = INTERP(coords, p0.z, p1.z);
+        const float texCoord = INTERP(coords, v0.texCoord, v1.texCoord);
 
         // Invoke fragment shader / sample and blend offscreen shading.
-        float4 fragment = float4(ColorCycle(floor(segmentIndex / 10), 100) * coverage, coverage);
+        // float4 fragment = float4(ColorCycle(floor(segmentIndex / 9), 2) * coverage, coverage);
+         float4 fragment = float4(lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage, coverage);
 
         // Compute the slice index for this depth value.
-        const uint sliceIndex = ComputeSliceIndex(binMinZ, binMaxZ, z);
+        const uint sliceIndex = ComputeSliceIndex(binMaxZ, binMinZ, z);
 
         if (!IsSliceEmpty(sliceMask, sliceIndex))
         {
@@ -167,18 +184,22 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         fragmentCounter++;
     }
 
+    if (fragmentCounter == 0)
+        return;
+
+    // float4 pixelColorAndAlpha = fragments[slices[GetLeastSignificantBit(sliceMask)]]; //float4(0, 0, 0, 1);
     float4 pixelColorAndAlpha = float4(0, 0, 0, 1);
 
     // Scan the slices in order to resolve the per-pixel transmittance function.
     uint f, i = 0;
-    for (; f < fragmentCounter && i < NUM_SLICES; ++i)
+    for (; i < NUM_SLICES; ++i)
     {
         // Skip empty slices.
-        if (IsSliceEmpty(sliceMask, f))
+        if (IsSliceEmpty(sliceMask, i))
             continue;
 
         // Fetch the slice pointer to the fragment.
-        const int fragmentIndex = slices[f];
+        const int fragmentIndex = slices[i];
 
         // Grab the fragment
         const float4 fragmentColorAndAlpha = fragments[fragmentIndex];
@@ -188,8 +209,9 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         pixelColorAndAlpha.a   *= 1 - fragmentColorAndAlpha.a;
 
         // Only iterate if this was a non-empty slice.
-        f++;
+        // f++;
     }
 
-    _OutputTarget[dispatchThreadID.xy] = pixelColorAndAlpha;
+     _OutputTarget[dispatchThreadID.xy] = pixelColorAndAlpha;
+    // _OutputTarget[dispatchThreadID.xy] = OverlayHeatMap(dispatchThreadID.xy, uint2(0, 0), fragmentCounter, 32, 1.0);
 }

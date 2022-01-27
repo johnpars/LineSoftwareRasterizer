@@ -38,6 +38,7 @@ class Editor:
         self.speed_camera_movement = 0.1
         self.speed_camera_rotation = 0.1
         self.position_mouse_last = (0, 0)
+        self.mouse_pos = (0, 0)
 
         # strand generation settings
         self.generation_settings = StrandFactory.Settings()
@@ -50,6 +51,7 @@ class Editor:
         self.tesselation = False
         self.tesselation_sample_count = 12
         self.oit = False
+        self.oit_heatmap_overlay = 0.0
 
         # ui panels states
         self.panel_camera  = False
@@ -101,6 +103,10 @@ class Editor:
             self.editor_camera.transform.update_mats()
             self.position_mouse_last = (curr_mouse[2], curr_mouse[3])
 
+    def update_mouse_pos(self, window):
+        pos = window.get_mouse_position()
+        self.mouse_pos = (pos[0], pos[1])
+
     def render_main_menu_bar(self, imgui: g.ImguiBuilder):
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("Tools"):
@@ -151,6 +157,8 @@ class Editor:
             imgui.text("Total Segments ---------------- " + str(stats.segmentCount))
             imgui.text("Frustum Culled (Pass / Fail) -- {} / {}".format(stats.segmentCountPassedFrustumCull,
                                                                       stats.segmentCount - stats.segmentCountPassedFrustumCull))
+            imgui.text("Debug Coordinate -------------- {}, {}".format(self.mouse_pos[0], self.mouse_pos[1]))
+
             debug_bin_overlay = imgui.slider_float(" Bin Overlay", self.debug_bin_overlay, 0, 1, "%.2f")
             self.debug_bin_overlay = debug_bin_overlay
 

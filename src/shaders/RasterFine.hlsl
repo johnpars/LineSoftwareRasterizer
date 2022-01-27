@@ -99,7 +99,7 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
         if (coverage && z > Z)
         {
             result = lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage;
-            // result = ColorCycle(segmentIndex % 12, 12) * coverage;
+            // result = ColorCycle(segmentIndex / 10, 100) * coverage;
             Z = z;
         }
     }

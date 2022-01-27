@@ -41,6 +41,7 @@ def on_render(render_args: gpu.RenderArgs):
 
     # Process user input and interface
     editor.update_camera(w, h, render_args.delta_time, render_args.window)
+    editor.update_mouse_pos(render_args.window)
 
     cmd = gpu.CommandList()
 
