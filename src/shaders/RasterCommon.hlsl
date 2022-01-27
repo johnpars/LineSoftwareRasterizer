@@ -19,6 +19,11 @@
 // Counter indices
 #define ATOMIC_COUNTER_BIN 0
 
+// Maximum representable floating-point number
+#define FLT_MAX  3.402823466e+38
+
+#define INTERP(coords, a, b) coords.y * a + coords.x * b
+
 // Structures
 // -----------------------------------------------------
 struct FragmentData
@@ -139,4 +144,29 @@ float DistanceToCubicBezierAndTValue(float2 P, float2 controlPoints[4], out floa
     T = res.y;
 
     return sqrt(res.x);
+}
+
+void LoadControlPoints(uint segmentIndex,
+                       StructuredBuffer<SegmentData> data,
+                       StructuredBuffer<VertexOutput> vertices,
+                       inout float2 controlPoints[4])
+{
+    // Find the start segment index.
+    const uint segmentStart = 3 * floor(segmentIndex / 3);
+
+    // Load the segments that contain all control points.
+    const SegmentData segment0 = data[segmentStart + 0];
+    const SegmentData segment1 = data[segmentStart + 2];
+
+    // Load the control points from vertex buffer.
+    const VertexOutput vA = vertices[segment0.vi0];
+    const VertexOutput vB = vertices[segment0.vi1];
+    const VertexOutput vC = vertices[segment1.vi0];
+    const VertexOutput vD = vertices[segment1.vi1];
+
+    // Transform clip space -> NDC.
+    controlPoints[0] = vA.positionCS.xy * rcp(vA.positionCS.w);
+    controlPoints[1] = vB.positionCS.xy * rcp(vB.positionCS.w);
+    controlPoints[2] = vC.positionCS.xy * rcp(vC.positionCS.w);
+    controlPoints[3] = vD.positionCS.xy * rcp(vD.positionCS.w);
 }

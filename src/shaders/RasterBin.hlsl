@@ -9,19 +9,17 @@ cbuffer Constants : register(b0)
 };
 
 ByteAddressBuffer               _SegmentOutputBuffer : register(t0);
-
-#if RASTER_CURVE
 StructuredBuffer<SegmentData>   _SegmentDataBuffer   : register(t1);
 StructuredBuffer<VertexOutput>  _VertexOutputBuffer  : register(t2);
-#else
-StructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(t1);
-#endif
+StructuredBuffer<SegmentRecord> _SegmentRecordBuffer : register(t3);
 
 // Outputs
 // ----------------------------------------
 RWStructuredBuffer<BinRecord> _BinRecords        : register(u0);
 RWBuffer<uint>                _BinRecordsCounter : register(u1);
 RWBuffer<uint>                _BinCounters       : register(u2);
+RWBuffer<uint>                _BinMinZ           : register(u3);
+RWBuffer<uint>                _BinMaxZ           : register(u4);
 
 // Define
 // ----------------------------------------
@@ -50,7 +48,7 @@ bool ExitThread(uint i)
 }
 
 // TODO: Do this check in tiled raster space, not NDC space.
-bool SegmentsIntersectsBin(uint x, uint y, float2 p0, float2 p1)
+bool SegmentsIntersectsBin(uint x, uint y, float2 p0, float2 p1, inout float z)
 {
     float2 tileB = float2(x, y);
     float2 tileE = tileB + 1.0;
@@ -63,8 +61,7 @@ bool SegmentsIntersectsBin(uint x, uint y, float2 p0, float2 p1)
     // Get the tile's center.
     float2 center = aabbTile.Center();
 
-    float unused;
-    float d = DistanceToSegmentAndTValue(center.xy, p0.xy, p1.xy, unused);
+    float d = DistanceToSegmentAndTValue(center.xy, p0.xy, p1.xy, z);
 
     // Compute the segment coverage provided by the segment distance.
     // TODO: Looks like screen params not updated when going from big -> small window size.
@@ -99,13 +96,35 @@ bool CurveIntersectsBin(uint x, uint y, float2 controlPoints[4])
     return any(coverage);
 }
 
-void RecordBin(uint binIndex, uint segmentIndex)
+void RecordBin(uint binIndex, uint segmentIndex, float t)
 {
     // For now, just fire into a record list with global atomics.
 
     // Update this bin's counter and write back the previous value.
     uint binOffset;
     InterlockedAdd(_BinCounters[binIndex], 1, binOffset);
+
+    // Track the minimum and maximum Z for each bin.
+    {
+        // TODO: Could maybe just put z into the header
+        const SegmentData segment = _SegmentDataBuffer[segmentIndex];
+
+        const VertexOutput v0 = _VertexOutputBuffer[segment.vi0];
+        const VertexOutput v1 = _VertexOutputBuffer[segment.vi1];
+
+        const float z0 = v0.positionCS.z * rcp(v0.positionCS.w);
+        const float z1 = v1.positionCS.z * rcp(v1.positionCS.w);
+
+        const float2 coords = float2(
+            t,
+            1 - t
+        );
+
+        const float z = INTERP(coords, z0, z1);
+
+        InterlockedMin(_BinMinZ[binIndex], asuint(abs(z)));
+        InterlockedMax(_BinMaxZ[binIndex], asuint(abs(z)));
+    }
 
     // Compute the next valid index in the record buffer.
     uint recordIndex;
@@ -119,30 +138,6 @@ void RecordBin(uint binIndex, uint segmentIndex)
         record.binOffset    = binOffset;
     }
     _BinRecords[recordIndex] = record;
-}
-
-void LoadControlPoints(uint segmentIndex, inout float2 controlPoints[4])
-{
-#if RASTER_CURVE
-    // Find the start segment index
-    const uint segmentStart = 3 * floor(segmentIndex / 3);
-
-    // Load the segments that contain all control points
-    const SegmentData segment0 = _SegmentDataBuffer[segmentStart + 0];
-    const SegmentData segment1 = _SegmentDataBuffer[segmentStart + 2];
-
-    // Load the control points from vertex buffer.
-    const VertexOutput vA = _VertexOutputBuffer[segment0.vi0];
-    const VertexOutput vB = _VertexOutputBuffer[segment0.vi1];
-    const VertexOutput vC = _VertexOutputBuffer[segment1.vi0];
-    const VertexOutput vD = _VertexOutputBuffer[segment1.vi1];
-
-    // Transform clip space -> NDC.
-    controlPoints[0] = vA.positionCS.xy * rcp(vA.positionCS.w);
-    controlPoints[1] = vB.positionCS.xy * rcp(vB.positionCS.w);
-    controlPoints[2] = vC.positionCS.xy * rcp(vC.positionCS.w);
-    controlPoints[3] = vD.positionCS.xy * rcp(vD.positionCS.w);
-#endif
 }
 
 void GetCurveBoundingBox(float2 controlPoints[4], out uint2 tilesB, out uint2 tilesE)
@@ -255,7 +250,7 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
 
 #if RASTER_CURVE
     float2 controlPoints[4];
-    LoadControlPoints(s, controlPoints);
+    LoadControlPoints(s, _SegmentDataBuffer, _VertexOutputBuffer, controlPoints);
 
     uint2 tilesB, tilesE;
     GetCurveBoundingBox(controlPoints, tilesB, tilesE);
@@ -275,17 +270,18 @@ void RasterBin(uint3 dispatchThreadID : SV_DispatchThreadID, uint groupIndex : S
     for (uint x = tilesB.x; x <= tilesE.x; ++x)
     for (uint y = tilesB.y; y <= tilesE.y; ++y)
     {
-        // TODO: On-chip tesselation.
+        float t = 0;
+
 #if RASTER_CURVE
         if (!s_fastPath && !CurveIntersectsBin(x, y, controlPoints))
 #else
-        if (!s_fastPath && !SegmentsIntersectsBin(x, y, segment.v0, segment.v1))
+        if (!s_fastPath && !SegmentsIntersectsBin(x, y, segment.v0, segment.v1, t))
 #endif
            continue;
 
         // Compute the flatted bin index.
         const uint binIndex = y * _TileDim.x + x;
 
-        RecordBin(binIndex, s);
+        RecordBin(binIndex, s, t);
     }
 }

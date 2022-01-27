@@ -64,6 +64,7 @@ def on_render(render_args: gpu.RenderArgs):
         editor.strands.strand_particle_count,
         editor.tesselation,
         editor.tesselation_sample_count,
+        editor.oit,
         output_target
     )
 

@@ -8,12 +8,13 @@ from src import PrefixSum
 from src import Rasterizer
 
 # Stage Kernels
-s_raster_bin            = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",     main_function="RasterBin")
-s_raster_bin_tes        = gpu.Shader(file="RasterBin.hlsl",    name="RasterBin",     main_function="RasterBin", defines=["RASTER_CURVE"])
-s_raster_fine           = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",    main_function="RasterFine")
-s_raster_fine_tes       = gpu.Shader(file="RasterFine.hlsl",   name="RasterFine",    main_function="RasterFine", defines=["RASTER_CURVE"])
-s_build_work_queue_args = gpu.Shader(file="WorkQueue.hlsl",    name="WorkQueueArgs", main_function="BuildWorkQueueArgs")
-s_build_work_queue      = gpu.Shader(file="WorkQueue.hlsl",    name="WorkQueue",     main_function="BuildWorkQueue")
+s_raster_bin            = gpu.Shader(file="RasterBin.hlsl",     name="RasterBin",     main_function="RasterBin")
+s_raster_bin_tes        = gpu.Shader(file="RasterBin.hlsl",     name="RasterBin",     main_function="RasterBin", defines=["RASTER_CURVE"])
+s_raster_fine           = gpu.Shader(file="RasterFine.hlsl",    name="RasterFine",    main_function="RasterFine")
+s_raster_fine_tes       = gpu.Shader(file="RasterFine.hlsl",    name="RasterFine",    main_function="RasterFine", defines=["RASTER_CURVE"])
+s_raster_fine_oit       = gpu.Shader(file="RasterFineOIT.hlsl", name="RasterFineOIT", main_function="RasterFineOIT")
+s_build_work_queue_args = gpu.Shader(file="WorkQueue.hlsl",     name="WorkQueueArgs", main_function="BuildWorkQueueArgs")
+s_build_work_queue      = gpu.Shader(file="WorkQueue.hlsl",     name="WorkQueue",     main_function="BuildWorkQueue")
 
 
 class RasterizerBinned(Rasterizer.Rasterizer):
@@ -26,6 +27,8 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         self.b_bin_records = None
         self.b_bin_records_counter = None
         self.b_bin_counters = None
+        self.b_bin_min_z = None
+        self.b_bin_max_z = None
         self.b_bin_offsets = None
         self.b_work_queue = None
         self.b_work_queue_args = None
@@ -104,6 +107,20 @@ class RasterizerBinned(Rasterizer.Rasterizer):
             element_count=self.bin_w * self.bin_h
         )
 
+        self.b_bin_min_z = gpu.Buffer(
+            name="BinMinZ",
+            type=gpu.BufferType.Standard,
+            format=gpu.Format.R32_UINT,
+            element_count=self.bin_w * self.bin_h
+        )
+
+        self.b_bin_max_z = gpu.Buffer(
+            name="BinMaxZ",
+            type=gpu.BufferType.Standard,
+            format=gpu.Format.R32_UINT,
+            element_count=self.bin_w * self.bin_h
+        )
+
         self.b_prefix_sum_args = PrefixSum.allocate_args(self.bin_w * self.bin_h)
 
     def update_constant_buffers(self, context):
@@ -160,22 +177,26 @@ class RasterizerBinned(Rasterizer.Rasterizer):
             Utility.ClearMode.UINT
         )
 
+        Utility.clear_buffer(
+            context.cmd,
+            2147483647, # Max int
+            self.bin_w * self.bin_h,
+            self.b_bin_min_z,
+            Utility.ClearMode.UINT
+        )
+
+        Utility.clear_buffer(
+            context.cmd,
+            0,
+            self.bin_w * self.bin_h,
+            self.b_bin_max_z,
+            Utility.ClearMode.UINT
+        )
+
         context.cmd.end_marker()
 
     def raster_bin(self, context):
         context.cmd.begin_marker("BinPass")
-
-        if context.tesselation:
-            inputs = [
-                self.b_segment_output,
-                self.b_segment_data,
-                self.b_vertex_output
-            ]
-        else:
-            inputs = [
-                self.b_segment_output,
-                self.b_segment_header
-            ]
 
         context.cmd.dispatch(
             shader=s_raster_bin_tes if context.tesselation else s_raster_bin,
@@ -184,12 +205,19 @@ class RasterizerBinned(Rasterizer.Rasterizer):
                 self.cb_raster_bin
             ],
 
-            inputs=inputs,
+            inputs=[
+                self.b_segment_output,
+                self.b_segment_data,
+                self.b_vertex_output,
+                self.b_segment_header
+            ],
 
             outputs=[
                 self.b_bin_records,
                 self.b_bin_records_counter,
-                self.b_bin_counters
+                self.b_bin_counters,
+                self.b_bin_min_z,
+                self.b_bin_max_z
             ],
 
             x=math.ceil(context.segment_count / Budgets.NUM_LANE_PER_WAVE)
@@ -241,8 +269,17 @@ class RasterizerBinned(Rasterizer.Rasterizer):
     def raster_fine(self, context):
         context.cmd.begin_marker("FinePass")
 
+        if context.oit:
+            shader = None if context.tesselation else s_raster_fine_oit
+        else:
+            shader = s_raster_fine_tes if context.tesselation else s_raster_fine
+
+        if shader is None:
+            print("OIT + Tesselation not yet implemented.")
+            return
+
         context.cmd.dispatch(
-            shader=s_raster_fine_tes if context.tesselation else s_raster_fine,
+            shader=shader,
 
             constants=[
                 self.cb_raster_fine
@@ -253,7 +290,9 @@ class RasterizerBinned(Rasterizer.Rasterizer):
                 self.b_bin_offsets,
                 self.b_bin_counters,
                 self.b_segment_data,
-                self.b_vertex_output
+                self.b_vertex_output,
+                self.b_bin_min_z,
+                self.b_bin_max_z
             ],
 
             outputs=[

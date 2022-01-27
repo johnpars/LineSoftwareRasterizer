@@ -49,6 +49,7 @@ class Editor:
         self.debug_bin_overlay = 0.0
         self.tesselation = False
         self.tesselation_sample_count = 12
+        self.oit = False
 
         # ui panels states
         self.panel_camera  = False
@@ -147,18 +148,23 @@ class Editor:
                 self.rebuild_strands_asset(self.strands_asset_name)
 
         if imgui.collapsing_header("Stats"):
-            imgui.text("Total Segments:               " + str(stats.segmentCount))
-            imgui.text("Frustum Culled (Pass / Fail): {} / {}".format(stats.segmentCountPassedFrustumCull,
+            imgui.text("Total Segments ---------------- " + str(stats.segmentCount))
+            imgui.text("Frustum Culled (Pass / Fail) -- {} / {}".format(stats.segmentCountPassedFrustumCull,
                                                                       stats.segmentCount - stats.segmentCountPassedFrustumCull))
             debug_bin_overlay = imgui.slider_float(" Bin Overlay", self.debug_bin_overlay, 0, 1, "%.2f")
             self.debug_bin_overlay = debug_bin_overlay
 
         if imgui.collapsing_header("Tesselation"):
+            imgui.push_id("T")
             self.tesselation = imgui.checkbox("Enable", self.tesselation)
 
             if self.tesselation:
                 curve_samples = imgui.slider_float(" Samples", self.tesselation_sample_count, 2, 20, "%.0f")
                 self.tesselation_sample_count = int(curve_samples)
+            imgui.pop_id()
+
+        if imgui.collapsing_header("Order Independent Transparency"):
+            self.oit = imgui.checkbox("Enable", self.oit)
 
         imgui.end()
 

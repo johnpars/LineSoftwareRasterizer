@@ -25,9 +25,6 @@ RWTexture2D<float4> _OutputTarget : register(u0);
 #define LAYERS_PER_PIXEL 16
 #define LAST_NODE        0xFFFFFFFF
 
-// Maximum representable floating-point number
-#define FLT_MAX  3.402823466e+38
-
 void InitializeBlendingArray(inout Fragment B[LAYERS_PER_PIXEL + 1])
 {
     // Create the default fragment.
