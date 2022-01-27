@@ -41,8 +41,8 @@ groupshared uint g_BinMaxZ;
 
 uint ComputeSliceIndex(float binStart, float binEnd, float z)
 {
-    const uint fraction = (asuint(abs(z)) - binStart) / (binEnd - binStart);
-    return round(fraction * NUM_SLICES);
+    const float fraction = (z - binStart) / (binEnd - binStart);
+    return clamp(round(fraction * NUM_SLICES), 0, 64);
 }
 
 // Kernel
@@ -53,7 +53,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
-    const float segmentWidth = 1.5 / _ScreenParams.y;
+    const float segmentWidth = 3.0 / _ScreenParams.y;
 
     // Load the tile data into LDS.
     if (groupIndex == 0)
@@ -66,24 +66,19 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     }
     GroupMemoryBarrierWithGroupSync();
 
-    uint segmentCount = g_BinCount;
-    uint binOffset    = g_BinOffset;
-    uint binMinZ      = g_BinMinZ;
-    uint binMaxZ      = g_BinMaxZ;
+    const uint segmentCount = g_BinCount;
+    const uint binOffset    = g_BinOffset;
 
-    // if (segmentCount == 0)
-    //     return;
+    const float binMinZ      = asfloat(g_BinMinZ);
+    const float binMaxZ      = asfloat(g_BinMaxZ);
 
-    // Prepare arrays
-    uint slices[NUM_SLICES];
+    int sliceBuffer[NUM_SLICES];
+
     for (uint k = 0; k < NUM_SLICES; k++)
-        slices[k] = -1;
-
-    float4 fragments[64];
-
-    float3 result = 0;
+        sliceBuffer[k] = -1;
 
     uint fragmentCounter = 0;
+    float4 fragments[NUM_SLICES];
 
     for (uint s = 0; s < segmentCount; ++s)
     {
@@ -108,46 +103,47 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         // Compute the segment coverage provided by the segment distance.
         float coverage = 1 - smoothstep(0.0, segmentWidth, distance);
 
-        if (coverage)
+        // Skip the segment if there is no coverage.
+        if (!coverage)
+            continue;
+
+        float2 coords = float2(
+            t,
+            1 - t
+        );
+
+        // Interpolate Vertex Data
+        const float z = INTERP(coords, p0.z, p1.z);
+
+        // Compute the slice index for this depth value and point to the fragment index.
+        const uint sliceIndex = ComputeSliceIndex(binMaxZ, binMinZ, z);
+
+        float4 fragment = float4(ColorCycle(floor(segmentIndex / 10), 100) * coverage, coverage);
+
+        if (sliceBuffer[sliceIndex] < 0)
         {
-            float2 coords = float2(
-                t,
-                1 - t
-            );
-
-            //coverage *= 0.2;
-
-            // Interpolate Vertex Data
-            const float z  = INTERP(coords, p0.z, p1.z);
-            const float texCoord = INTERP(coords, v0.texCoord, v1.texCoord);
-
-            // Compute the slice index for this depth value and point to the fragment index.
-            const uint sliceIndex = ComputeSliceIndex(binMinZ, binMaxZ, z);
-
-            if (slices[sliceIndex] > -1)
-            {
-
-            }
-            else
-            {
-                // Write this fragment to the fragment buffer.
-                const float4 color = float4(lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage, coverage);
-                fragments[fragmentCounter] = color;
-
-                slices[sliceIndex] = fragmentCounter;
-
-                fragmentCounter++;
-            }
+            fragments[fragmentCounter] = fragment;
+            sliceBuffer[sliceIndex] = fragmentCounter;
+            fragmentCounter++;
+        }
+        else
+        {
+            // This slice is already occupied. Alpha blend with the current fragment.
+            float4 slicFragment = fragments[sliceBuffer[sliceIndex]];
+            float4 blenFragment = slicFragment + (fragment * (1 - slicFragment.a));
+            fragments[sliceBuffer[sliceIndex]] = blenFragment;
         }
     }
 
+    float3 result = 0;
     float transmittance = 1;
 
     // Resolve the per-pixel transmittance function.
     for (int i = 0; i < fragmentCounter; i++)
     {
-        const int fragmentIndex = slices[i];
+        const int fragmentIndex = sliceBuffer[i];
 
+        // Skip empty slices.
         if (fragmentIndex < 0)
             continue;
 
@@ -157,5 +153,5 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         transmittance *= 1 - color.a;
     }
 
-    _OutputTarget[dispatchThreadID.xy] = float4(result, 1);
+    _OutputTarget[dispatchThreadID.xy] = float4(result, transmittance);
 }

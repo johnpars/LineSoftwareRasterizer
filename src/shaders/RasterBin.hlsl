@@ -122,8 +122,8 @@ void RecordBin(uint binIndex, uint segmentIndex, float t)
 
         const float z = INTERP(coords, z0, z1);
 
-        InterlockedMin(_BinMinZ[binIndex], asuint(abs(z)));
-        InterlockedMax(_BinMaxZ[binIndex], asuint(abs(z)));
+        InterlockedMin(_BinMinZ[binIndex], asint(z));
+        InterlockedMax(_BinMaxZ[binIndex], asint(z));
     }
 
     // Compute the next valid index in the record buffer.

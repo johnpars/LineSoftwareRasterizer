@@ -66,7 +66,7 @@ class Editor:
         self.pressed_b = input_states.get_key_state(g.Keys.S)
 
         prev_mouse = self.pressed_can_move
-        self.pressed_can_move = input_states.get_key_state(g.Keys.MouseRight)
+        self.pressed_can_move = input_states.get_key_state(g.Keys.Space)
         if prev_mouse != self.pressed_can_move:
             m = input_states.get_mouse_position()
             self.position_mouse_last = (m[2], m[3])

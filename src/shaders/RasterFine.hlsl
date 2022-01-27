@@ -96,7 +96,7 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
         const float z  = INTERP(coords, p0.z, p1.z);
         const float texCoord = INTERP(coords, v0.texCoord, v1.texCoord);
 
-        if (coverage > 0 && z > Z)
+        if (coverage && z > Z)
         {
             result = lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage;
             // result = ColorCycle(segmentIndex % 12, 12) * coverage;

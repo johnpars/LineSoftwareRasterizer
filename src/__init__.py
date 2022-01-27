@@ -6,8 +6,8 @@ print ("Devices:")
 [print("{}: {}".format(idx, nm)) for (idx, nm) in gpu.get_adapters()]
 
 gpu.set_current_adapter(
-    index=0,
-    shader_model=gpu.ShaderModel.Sm6_4,
+    index=1,
+    # shader_model=gpu.ShaderModel.Sm6_4,
     dump_shader_pdbs=True
 )
 
