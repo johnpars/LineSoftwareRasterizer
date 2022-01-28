@@ -32,7 +32,11 @@ RWTexture2D<float4> _OutputTarget : register(u0);
 #define _HeatmapOverlay _Params1.w
 
 // Hardcoded for 32 slices due to the slice mask.
-#define NUM_SLICES 32
+#define NUM_SLICES 128
+
+// Static Global
+// Warning, slice mask can only support up to 128 slices.
+static uint4 s_SliceMask;
 
 // Local
 groupshared uint g_BinOffset;
@@ -61,14 +65,24 @@ uint ComputeSliceIndex(float binStart, float binEnd, float z)
     return clamp(fraction * NUM_SLICES, 0, NUM_SLICES - 1);
 }
 
-bool IsSliceEmpty(uint sliceMask, uint sliceIndex)
+bool IsSliceEmpty(uint sliceIndex)
 {
-    return (sliceMask & (1u << sliceIndex)) == 0;
+    uint mask;
+
+    if      (sliceIndex < 32) { mask = s_SliceMask.x; }
+    else if (sliceIndex < 64) { mask = s_SliceMask.y; }
+    else if (sliceIndex < 96) { mask = s_SliceMask.z; }
+    else                      { mask = s_SliceMask.w; }
+
+    return (mask & (1u << sliceIndex)) == 0;
 }
 
-void WriteSlice(uint sliceIndex, inout uint sliceMask)
+void WriteSlice(uint sliceIndex)
 {
-    sliceMask |= 1u << sliceIndex;
+    if      (sliceIndex < 32) { s_SliceMask.x |= 1u << sliceIndex; }
+    else if (sliceIndex < 64) { s_SliceMask.y |= 1u << sliceIndex; }
+    else if (sliceIndex < 96) { s_SliceMask.z |= 1u << sliceIndex; }
+    else                      { s_SliceMask.w |= 1u << sliceIndex; }
 }
 
 // Kernel
@@ -106,7 +120,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     float4 fragments [NUM_SLICES];
 
     // Maintain a bit mask to check for slice buffer occupants.
-    uint sliceMask = 0;
+    s_SliceMask = 0;
 
     // Track a fragment counter for new entries to the fragment buffer.
     uint fragmentCounter = 0;
@@ -164,7 +178,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         // Compute the slice index for this depth value.
         const uint sliceIndex = ComputeSliceIndex(binMaxZ, binMinZ, z);
 
-        if (!IsSliceEmpty(sliceMask, sliceIndex))
+        if (!IsSliceEmpty(sliceIndex))
         {
             // This slice is already occupied.
             const uint sliceFragmentIndex = slices[sliceIndex];
@@ -182,7 +196,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         }
 
         // First update the slice mask.
-        WriteSlice(sliceIndex, sliceMask);
+        WriteSlice(sliceIndex);
 
         // Make the new fragment entry.
         fragments[fragmentCounter] = fragment;
@@ -205,7 +219,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     for (; i < NUM_SLICES; ++i)
     {
         // Skip empty slices.
-        if (IsSliceEmpty(sliceMask, i))
+        if (IsSliceEmpty(i))
             continue;
 
         // Fetch the slice pointer to the fragment.

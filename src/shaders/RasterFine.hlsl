@@ -38,7 +38,7 @@ void RasterFine(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
-    const float segmentWidth = 1.5 / _ScreenParams.y;
+    const float segmentWidth = 2 / _ScreenParams.y;
 
     // Load the tile data into LDS.
     if (groupIndex == 0)
