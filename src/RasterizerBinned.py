@@ -149,7 +149,9 @@ class RasterizerBinned(Rasterizer.Rasterizer):
                 Budgets.TILE_SIZE_BIN,
                 self.bin_w,
                 self.bin_h,
-                context.tesselation_sample_count
+                context.tesselation_sample_count,
+                context.oit_opacity,
+                context.oit_overlay
             ], dtype='f'),
             destination=self.cb_raster_fine
         )

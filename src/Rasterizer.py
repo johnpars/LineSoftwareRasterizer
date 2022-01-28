@@ -25,6 +25,8 @@ class Context:
     tesselation: bool
     tesselation_sample_count: int
     oit : bool
+    oit_opacity : float
+    oit_overlay : float
     target: gpu.Texture
 
 

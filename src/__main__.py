@@ -66,6 +66,8 @@ def on_render(render_args: gpu.RenderArgs):
         editor.tesselation,
         editor.tesselation_sample_count,
         editor.oit,
+        editor.oit_opacity,
+        editor.oit_heatmap_overlay,
         output_target
     )
 

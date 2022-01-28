@@ -52,6 +52,7 @@ class Editor:
         self.tesselation_sample_count = 12
         self.oit = False
         self.oit_heatmap_overlay = 0.0
+        self.oit_opacity = 1.0
 
         # ui panels states
         self.panel_camera  = False
@@ -173,6 +174,13 @@ class Editor:
 
         if imgui.collapsing_header("Order Independent Transparency"):
             self.oit = imgui.checkbox("Enable", self.oit)
+
+            if self.oit:
+                oit_opacity = imgui.slider_float(" Opacity", self.oit_opacity, 0, 1, "%.2f")
+                self.oit_opacity = oit_opacity
+
+                oit_overlay = imgui.slider_float(" Fragments-per-Pixel Overlay", self.oit_heatmap_overlay, 0, 1, "%.2f")
+                self.oit_heatmap_overlay = oit_overlay
 
         imgui.end()
 

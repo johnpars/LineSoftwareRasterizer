@@ -28,6 +28,8 @@ RWTexture2D<float4> _OutputTarget : register(u0);
 #define _TileSizeSS   2.0 * float2(_TileSize.xx / _ScreenParams)
 #define _TileDim      uint2(_Params0.w, _Params1.x)
 #define _CurveSamples _Params1.y
+#define _Opacity        _Params1.z
+#define _HeatmapOverlay _Params1.w
 
 // Hardcoded for 32 slices due to the slice mask.
 #define NUM_SLICES 32
@@ -136,7 +138,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         if (!coverage)
             continue;
 
-        coverage *= 0.25;
+        coverage *= _Opacity;
 
         float2 coords = float2(
             t,
@@ -149,7 +151,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
 
         // Invoke fragment shader / sample and blend offscreen shading.
         // float4 fragment = float4(ColorCycle(floor(segmentIndex / 9), 2) * coverage, coverage);
-         float4 fragment = float4(lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage, coverage);
+        float4 fragment = float4(lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage, coverage);
 
         // Compute the slice index for this depth value.
         const uint sliceIndex = ComputeSliceIndex(binMaxZ, binMinZ, z);
@@ -212,6 +214,9 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         // f++;
     }
 
-     _OutputTarget[dispatchThreadID.xy] = pixelColorAndAlpha;
-    // _OutputTarget[dispatchThreadID.xy] = OverlayHeatMap(dispatchThreadID.xy, uint2(0, 0), fragmentCounter, 32, 1.0);
+    float4 base = pixelColorAndAlpha;
+    float4 heat = OverlayHeatMap(dispatchThreadID.xy, uint2(0, 0), fragmentCounter, 32, 1.0);
+
+    const float a = _HeatmapOverlay;
+    _OutputTarget[dispatchThreadID.xy] = float4((base.rgb * (1 - a)) + (heat.rgb * a), 1);
 }
