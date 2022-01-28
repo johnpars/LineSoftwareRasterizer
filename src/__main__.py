@@ -17,7 +17,7 @@ initial_height = 720
 device_memory = StrandDeviceMemory.StrandDeviceMemory()
 
 # Create a default strand
-strands = StrandFactory.build_from_asset("cube_hair")
+strands = StrandFactory.build_from_asset("hair_sphere")
 
 # Layout the initial memory and bind the position data
 device_memory.layout(strands.strand_count, strands.strand_particle_count)

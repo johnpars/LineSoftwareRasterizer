@@ -172,7 +172,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         const float texCoord = INTERP(coords, v0.texCoord, v1.texCoord);
 
         // Invoke fragment shader / sample and blend offscreen shading.
-        // float4 fragment = float4(ColorCycle(floor(segmentIndex / 9), 2) * coverage, coverage);
+        // float4 fragment = float4(ColorCycle(floor(segmentIndex / 10), 100) * coverage, coverage);
         float4 fragment = float4(lerp(float3(1, 0, 1), float3(0, 1, 1), texCoord) * coverage, coverage);
 
         // Compute the slice index for this depth value.
@@ -186,7 +186,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
             float4 sliceFragment = fragments[sliceFragmentIndex];
             {
                 // Alpha blend with the current fragment in the slice.
-                sliceFragment += (fragment * (1 - sliceFragment.a));
+                sliceFragment += fragment * (1 - sliceFragment.a);
             }
 
             fragments[sliceFragmentIndex] = sliceFragment;
@@ -211,12 +211,10 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     if (fragmentCounter == 0)
         return;
 
-    // float4 pixelColorAndAlpha = fragments[slices[GetLeastSignificantBit(sliceMask)]]; //float4(0, 0, 0, 1);
     float4 pixelColorAndAlpha = float4(0, 0, 0, 1);
 
     // Scan the slices in order to resolve the per-pixel transmittance function.
-    uint f, i = 0;
-    for (; i < NUM_SLICES; ++i)
+    for (uint i = 0; i < NUM_SLICES; ++i)
     {
         // Skip empty slices.
         if (IsSliceEmpty(i))
@@ -231,14 +229,11 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         // Ordered transmittance function.
         pixelColorAndAlpha.rgb += fragmentColorAndAlpha.rgb * pixelColorAndAlpha.a;
         pixelColorAndAlpha.a   *= 1 - fragmentColorAndAlpha.a;
-
-        // Only iterate if this was a non-empty slice.
-        // f++;
     }
 
-    float4 base = pixelColorAndAlpha;
-    float4 heat = OverlayHeatMap(dispatchThreadID.xy, uint2(0, 0), fragmentCounter, 32, 1.0);
-
+    // Debug heatmap of fragment count per-pixel.
     const float a = _HeatmapOverlay;
-    _OutputTarget[dispatchThreadID.xy] = float4((base.rgb * (1 - a)) + (heat.rgb * a), 1);
+    const float4 base = pixelColorAndAlpha;
+    const float4 heat = OverlayHeatMap(dispatchThreadID.xy, uint2(0, 0), fragmentCounter, NUM_SLICES, 1.0);
+    _OutputTarget[dispatchThreadID.xy] = lerp(base, heat, a);
 }

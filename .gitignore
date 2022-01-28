@@ -1,5 +1,4 @@
 src/__pycache__/
-src/data/
 src/.shader_pdb/
 src/imgui.ini
 .idea/
