@@ -79,7 +79,7 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
     const float2 UV = ((float2)dispatchThreadID.xy + 0.5) * rcp(_ScreenParams);
     const float2 UVh = -1 + 2 * UV;
 
-    const float segmentWidth = 1.5 / _ScreenParams.y;
+    const float segmentWidth = 2  / _ScreenParams.y;
 
     // Load the tile data into LDS.
     if (groupIndex == 0)
@@ -128,8 +128,16 @@ void RasterFineOIT(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID :
         float3 p1 = v1.positionCS.xyz * rcp(v1.positionCS.w);
 
         // Compute the segment coverage and 'barycentric' coord.
+#ifndef RASTER_CURVE
         float t;
         float distance = DistanceToSegmentAndTValue(UVh, p0.xy, p1.xy, t);
+#else
+        float2 controlPoints[4];
+        LoadControlPoints(segmentIndex, _SegmentDataBuffer, _VertexOutputBuffer, controlPoints);
+
+        float t;
+        float distance = DistanceToCubicBezierAndTValue(UVh, controlPoints, t, _CurveSamples);
+#endif
 
         // Compute the segment coverage provided by the segment distance.
         float coverage = 1 - smoothstep(0.0, segmentWidth, distance);

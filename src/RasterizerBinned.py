@@ -13,6 +13,7 @@ s_raster_bin_tes        = gpu.Shader(file="RasterBin.hlsl",     name="RasterBin"
 s_raster_fine           = gpu.Shader(file="RasterFine.hlsl",    name="RasterFine",    main_function="RasterFine")
 s_raster_fine_tes       = gpu.Shader(file="RasterFine.hlsl",    name="RasterFine",    main_function="RasterFine", defines=["RASTER_CURVE"])
 s_raster_fine_oit       = gpu.Shader(file="RasterFineOIT.hlsl", name="RasterFineOIT", main_function="RasterFineOIT")
+s_raster_fine_oit_tes   = gpu.Shader(file="RasterFineOIT.hlsl", name="RasterFineOIT", main_function="RasterFineOIT", defines=["RASTER_CURVE"])
 s_build_work_queue_args = gpu.Shader(file="WorkQueue.hlsl",     name="WorkQueueArgs", main_function="BuildWorkQueueArgs")
 s_build_work_queue      = gpu.Shader(file="WorkQueue.hlsl",     name="WorkQueue",     main_function="BuildWorkQueue")
 
@@ -272,13 +273,9 @@ class RasterizerBinned(Rasterizer.Rasterizer):
         context.cmd.begin_marker("FinePass")
 
         if context.oit:
-            shader = None if context.tesselation else s_raster_fine_oit
+            shader = s_raster_fine_oit_tes if context.tesselation else s_raster_fine_oit
         else:
             shader = s_raster_fine_tes if context.tesselation else s_raster_fine
-
-        if shader is None:
-            print("OIT + Tesselation not yet implemented.")
-            return
 
         context.cmd.dispatch(
             shader=shader,
