@@ -1,6 +1,7 @@
 # Editor adapted from Kleber Garcia's GRR (GPU Rasterizer and Renderer)
 
 import coalpy.gpu as g
+import os
 import numpy as np
 import sys
 import pathlib
@@ -21,9 +22,7 @@ class Editor:
         self.frame_it = 0
 
         # Temp: debugging camera default
-        self.editor_camera.pos = Vector.float3(7.827458, 1.0573884, 7.414528)
-        self.editor_camera.transform.rotation = np.quaternion(0.390986784050001, 0.0223924684704286,
-                                                              -0.918854440764099, 0.0483159327309966)
+        self.editor_camera.pos = Vector.float3(0.0, 0.0, -10.690)
         self.editor_camera.fov = 1.132
         self.editor_camera.transform.update_mats()
 
@@ -50,14 +49,21 @@ class Editor:
         self.debug_bin_overlay = 0.0
         self.tesselation = False
         self.tesselation_sample_count = 12
-        self.oit = False
+        self.oit = True
         self.oit_heatmap_overlay = 0.0
-        self.oit_opacity = 1.0
+        self.oit_opacity = 0.21 
 
         # ui panels states
-        self.panel_camera  = False
+        self.panel_camera  = True 
         self.panel_raster  = True
 
+        try:
+            self.obj_file_list = [s for s in os.listdir("src/data/") if s.endswith(".obj")]
+        except Exception as e:
+            self.obj_file_list = []
+            print("Could not create list of object files: " + e)
+
+            
     @property
     def camera(self):
         return self.editor_camera
@@ -94,13 +100,15 @@ class Editor:
             rot_vec = delta_time * self.speed_camera_rotation * Vector.float3(curr_mouse[2] - self.position_mouse_last[0],
                                                                               curr_mouse[3] - self.position_mouse_last[1], 0.0)
 
-            x_axis = self.editor_camera.transform.right
             y_axis = Vector.float3(0, 1, 0)
 
-            prev_q = self.editor_camera.transform.rotation
             qx = Vector.q_from_angle_axis(-np.sign(rot_vec[0]) * (np.abs(rot_vec[0]) ** 1.2), y_axis)
+            self.editor_camera.transform.rotation = qx * self.editor_camera.transform.rotation
+            x_axis = self.editor_camera.transform.right
+
             qy = Vector.q_from_angle_axis(np.sign(rot_vec[1]) * (np.abs(rot_vec[1]) ** 1.2), x_axis)
-            self.editor_camera.transform.rotation = qy * (qx * prev_q)
+            self.editor_camera.transform.rotation = qy * self.editor_camera.transform.rotation
+
             self.editor_camera.transform.update_mats()
             self.position_mouse_last = (curr_mouse[2], curr_mouse[3])
 
@@ -148,8 +156,14 @@ class Editor:
         self.panel_raster = imgui.begin("Settings", self.panel_raster)
 
         if imgui.collapsing_header("Strands"):
-            asset = imgui.input_text("Asset", self.strands_asset_name)
-            self.strands_asset_name = asset
+            curr_asset = self.strands_asset_name
+            if imgui.begin_combo("Strand asset", curr_asset):
+                for a in self.obj_file_list:
+                    if imgui.selectable(a, curr_asset == a):
+                        curr_asset = a[:-4]
+                self.strands_asset_name = curr_asset
+                imgui.end_combo()
+            self.strands_asset_name = curr_asset
             imgui.same_line()
             if imgui.button("Load"):
                 self.rebuild_strands_asset(self.strands_asset_name)
@@ -186,6 +200,7 @@ class Editor:
 
     def rebuild_strands_asset(self, asset):
         # Create a default strand
+        self.strands_asset_name = asset
         self.strands = StrandFactory.build_from_asset(asset)
 
         # Layout the initial memory and bind the position data

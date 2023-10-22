@@ -225,6 +225,7 @@ def build_procedural(settings: Settings = Settings()):
 
 # Build a strand group based on a line OBJ.
 def build_from_asset(path):
+    print("ASSET:" +path)
     strand_pos = []
     strand_count = 0
     strand_particle_count = 0
