@@ -81,7 +81,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
             type=gpu.BufferType.Structured,
             stride=(4 * 4) * 2,
             element_count=1,
-            is_constant_buffer=True
+            usage=gpu.BufferUsage.Constant
         )
 
         self.cb_raster_fine = gpu.Buffer(
@@ -89,7 +89,7 @@ class RasterizerBinned(Rasterizer.Rasterizer):
             type=gpu.BufferType.Structured,
             stride=(4 * 4) * 2,
             element_count=1,
-            is_constant_buffer=True
+            usage=gpu.BufferUsage.Constant
         )
 
     def update_resolution_dependent_buffers(self, w, h):

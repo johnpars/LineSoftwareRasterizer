@@ -87,7 +87,7 @@ class Rasterizer:
             type=gpu.BufferType.Structured,
             stride=((4 * 4) * 4) + ((4 * 4) * 4) + (4 * 4),  # Matrix V, Matrix P, Params
             element_count=1,
-            is_constant_buffer=True
+            usage=gpu.BufferUsage.Constant
         )
 
         self.cb_segment_setup = gpu.Buffer(
@@ -95,7 +95,7 @@ class Rasterizer:
             type=gpu.BufferType.Structured,
             stride=(4 * 4),
             element_count=1,
-            is_constant_buffer=True
+            usage=gpu.BufferUsage.Constant
         )
 
     def update_constant_buffers(self, context):
